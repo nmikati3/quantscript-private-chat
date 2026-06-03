@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      CSP managed by tauri.conf.json for desktop; this meta tag covers the web build.
+      'unsafe-inline' for style-src is required by KaTeX and rehype-katex which inject
+      inline styles for math rendering.  Removing it breaks LaTeX display.
+    -->
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self';
+                   script-src 'self';
+                   style-src 'self' 'unsafe-inline';
+                   connect-src 'self' http://127.0.0.1:* http://localhost:*;
+                   img-src 'self' data: blob:;
+                   font-src 'self';
+                   frame-src 'none';
+                   object-src 'none';
+                   form-action 'self';
+                   base-uri 'self';" />
+    <title>QuantScript</title>
+  </head>
+  <body>
+    <div id="root">
+      <div style="position:fixed;inset:0;background:#fcfaf9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.25rem">
+        <div style="width:48px;height:48px;border:4px solid #e5e7eb;border-top:4px solid #3b82f6;border-radius:50%;animation:_spin 1s linear infinite"></div>
+        <div style="color:#374151;font-size:1.15rem;font-weight:600">Starting QuantScript</div>
+        <div style="color:#9ca3af;font-size:0.85rem">Launching backend…</div>
+      </div>
+      <style>@keyframes _spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}</style>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

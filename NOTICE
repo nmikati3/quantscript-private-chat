@@ -1,0 +1,73 @@
+QuantScript
+Copyright 2026 QuantScript
+
+This product includes software developed by QuantScript, licensed under the
+Apache License, Version 2.0 (see LICENSE). The Apache-2.0 license covers
+QuantScript's own source code only.
+
+================================================================================
+Bundled model (downloaded at runtime)
+================================================================================
+
+  Google Gemma 4 (unsloth/gemma-4-E4B-it-GGUF; base: google/gemma-4-E4B-it)
+    Apache-2.0
+    Gemma 4 is released under the Apache License 2.0. "Gemma" is a Google
+    trademark; the license grants no trademark rights and does not imply
+    endorsement (see https://ai.google.dev/gemma). Earlier Gemma generations
+    used Google's custom Gemma Terms of Use, which do NOT apply to Gemma 4.
+
+================================================================================
+Third-party components (bundled in the desktop .dmg or installed at runtime)
+================================================================================
+
+Python runtime
+  CPython                       Python Software Foundation License
+
+Backend (Python)
+  fastapi                       MIT
+  slowapi                       MIT
+  uvicorn                       BSD-3-Clause
+  starlette                     BSD-3-Clause
+  pydantic                      MIT
+  python-dotenv                 BSD-3-Clause
+  python-multipart              Apache-2.0
+  numpy                         BSD-3-Clause
+  pandas                        BSD-3-Clause
+  openpyxl                      MIT
+  pyarrow                       Apache-2.0
+  fastparquet                   Apache-2.0
+  rank-bm25                     Apache-2.0
+  urllib3                       MIT
+  requests                      Apache-2.0
+  idna                          BSD-3-Clause
+  webserp                       MIT
+  curl-cffi                     MIT (via webserp; bundles curl-impersonate native libs)
+  certifi                       MPL-2.0 (Mozilla CA bundle, via requests/curl-cffi)
+  llama-cpp-python              MIT
+  beautifulsoup4                MIT
+  trafilatura                   Apache-2.0
+  Pillow                        MIT-CMU
+  huggingface-hub               Apache-2.0
+  pypdfium2                     Apache-2.0 OR BSD-3-Clause (bundles PDFium under a
+                                BSD-style license + third-party licenses that ship
+                                with the binary, per LicenseRef-PdfiumThirdParty)
+
+Frontend (JavaScript / TypeScript)
+  react, react-dom              MIT
+  react-markdown                MIT
+  remark-gfm, remark-math       MIT
+  rehype-katex                  MIT
+  katex                         MIT
+  marked                        MIT
+  jspdf, jspdf-autotable        MIT
+
+Desktop shell (Rust)
+  Tauri (@tauri-apps/*)         MIT OR Apache-2.0
+  serde, serde_json             MIT OR Apache-2.0
+  getrandom, hmac, sha2, hex    MIT OR Apache-2.0
+  libc                          MIT OR Apache-2.0
+
+Each component remains under its own license, held by its respective copyright
+holders. License names above reflect the upstream projects at the pinned
+versions in backend/requirements.lock, frontend/package-lock.json, and
+frontend/src-tauri/Cargo.lock; refer to each project for full terms.

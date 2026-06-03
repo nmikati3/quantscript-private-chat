@@ -1,0 +1,65 @@
+# Root-level .gitignore for common files
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+
+# Deployment and infrastructure
+*.pem
+*.key
+*.crt
+
+# Environment files (if any at root level)
+.env
+.env.local
+.env.*.local
+
+# PyInstaller / packaging output (often at repo root)
+/build/
+
+.pytest_cache/
+
+# Model weights and packaged installers (never commit these)
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.onnx
+*.dmg
+
+# Tauri build artifacts
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
+frontend/src-tauri/binaries/
+frontend/src-tauri/resources/backend/
+frontend/src-tauri/resources/backend-manifest.json
+frontend/dist-pyinstaller/

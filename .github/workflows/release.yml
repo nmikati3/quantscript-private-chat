@@ -1,0 +1,175 @@
+name: Release (macOS desktop)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Allow the workflow to create a Release and upload assets when run on a tag.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    # macos-14 is an Apple Silicon (arm64) image -> produces the aarch64 .dmg.
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify signing secrets are present
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          missing=""
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                     APPLE_API_ISSUER APPLE_API_KEY_ID APPLE_API_KEY_P8; do
+            if [ -z "${!var}" ]; then missing="$missing $var"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required secrets:$missing"
+            exit 1
+          fi
+          echo "All signing secrets present."
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Write App Store Connect API key
+        id: apikey
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          key_path="$RUNNER_TEMP/apple_api_key.p8"
+          printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$key_path"
+          echo "path=$key_path" >> "$GITHUB_OUTPUT"
+
+      - name: Build, sign & notarize (.app)
+        working-directory: frontend
+        env:
+          # Tauri imports this cert into a temporary keychain automatically.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # Notarization (App Store Connect API key).
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_PATH: ${{ steps.apikey.outputs.path }}
+        run: npm run tauri:build
+
+      - name: Notarize & staple the .dmg
+        working-directory: frontend
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_PATH: ${{ steps.apikey.outputs.path }}
+        run: |
+          set -euo pipefail
+          DMG=$(ls src-tauri/target/release/bundle/dmg/*.dmg)
+          echo "Notarizing $DMG"
+          # Tauri staples the .app but ships the .dmg signed-only; notarize +
+          # staple the container so it opens with no Gatekeeper warning offline.
+          xcrun notarytool submit "$DMG" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+          xcrun stapler staple "$DMG"
+
+      - name: Verify signing, notarization & checksum
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          APP="src-tauri/target/release/bundle/macos/QuantScript.app"
+          DMG=$(ls src-tauri/target/release/bundle/dmg/*.dmg)
+
+          echo "== app =="
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          spctl -a -vvv -t install "$APP"
+          xcrun stapler validate "$APP"
+
+          echo "== dmg =="
+          xcrun stapler validate "$DMG"
+          spctl -a -vvv -t open --context context:primary-signature "$DMG"
+
+          echo "== checksum =="
+          ( cd "$(dirname "$DMG")" && shasum -a 256 "$(basename "$DMG")" | tee "$(basename "$DMG").sha256" )
+
+      - name: Enforce desktop privacy scan
+        working-directory: frontend
+        env:
+          # GitHub-hosted macOS runners build under /Users/runner; no personal
+          # developer home directory should appear in release artifacts.
+          QUANTSCRIPT_ALLOWED_EMBEDDED_USER_ROOTS: /Users/runner
+        run: |
+          set -euo pipefail
+          npm run desktop:privacy-scan
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuantScript-macos-aarch64
+          path: |
+            frontend/src-tauri/target/release/bundle/dmg/*.dmg
+            frontend/src-tauri/target/release/bundle/dmg/*.dmg.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          DMG=$(ls src-tauri/target/release/bundle/dmg/*.dmg)
+          SUM="$DMG.sha256"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$DMG" "$SUM" --clobber
+          else
+            # Create as a DRAFT: assets are visible only to collaborators with
+            # push access. Download + verify the .dmg, then click "Publish" in
+            # the GitHub Releases UI to make it public.
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --title "QuantScript $GITHUB_REF_NAME" \
+              --generate-notes \
+              "$DMG" "$SUM"
+          fi
+
+      - name: Remove API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/apple_api_key.p8"

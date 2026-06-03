@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- PyInstaller onefile extracts and dlopen()s bundled .dylib/.so at runtime.
+         Those libs aren't signed by our Team ID, so library validation must be off. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!-- The CPython interpreter / some native deps allocate executable memory. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+</dict>
+</plist>

@@ -1,0 +1,65 @@
+# Hostname regex patterns for ranking authoritative web search results.
+# One pattern per line. Lines starting with # are ignored.
+
+# Government / international
+\.gov(\.[a-z]{2})?$
+\.edu(\.[a-z]{2})?$
+\.int$
+\.mil(\.[a-z]{2})?$
+\.gouv\.fr$
+europa\.eu$
+un\.org$
+who\.int$
+
+# Documentation subdomains (any TLD)
+^docs\.
+^developer\.
+^support\.
+^learn\.
+^help\.
+^official\.
+
+# Reference / encyclopedia
+wikipedia\.org$
+wikidata\.org$
+wikimedia\.org$
+britannica\.com$
+
+# Developer platforms & Q&A
+github\.com$
+stackoverflow\.com$
+developer\.mozilla\.org$
+readthedocs\.io$
+pypi\.org$
+pkg\.go\.dev$
+huggingface\.co$
+
+# Language & runtime docs
+python\.org$
+golang\.org$
+nodejs\.org$
+rust-lang\.org$
+postgresql\.org$
+
+# Standards bodies
+ietf\.org$
+w3\.org$
+
+# Academic / research
+arxiv\.org$
+\.ac\.uk$
+semanticscholar\.org$
+pubmed\.ncbi\.nlm\.nih\.gov$
+doi\.org$
+openreview\.net$
+ssrn\.com$
+
+# Wire services / established news
+reuters\.com$
+apnews\.com$
+bbc\.(com|co\.uk)$
+npr\.org$
+afp\.com$
+ft\.com$
+theguardian\.com$
+bloomberg\.com$

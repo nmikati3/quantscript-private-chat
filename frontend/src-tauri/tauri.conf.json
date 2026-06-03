@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "QuantScript",
+  "version": "0.1.0",
+  "identifier": "com.quantscript.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run desktop:build-sidecar && npm run desktop:bundle-backend && npm run build",
+    "beforeBundleCommand": "npm run desktop:strip-xattrs",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "QuantScript",
+        "width": 1440,
+        "height": 920,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* http://localhost:*; img-src 'self' data: blob:; font-src 'self'; frame-src 'none'; object-src 'none'; form-action 'self'; base-uri 'self';"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": ["icons/icon.png", "icons/icon.icns"],
+    "externalBin": ["binaries/quantscript-backend"],
+    "resources": [
+      "resources/backend",
+      "resources/backend-manifest.json",
+      "resources/LICENSE",
+      "resources/NOTICE"
+    ],
+    "macOS": {
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}

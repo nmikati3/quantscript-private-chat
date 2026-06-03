@@ -1,0 +1,27 @@
+# Direct runtime dependencies, fully pinned for reproducibility.
+# The fully-resolved graph (incl. transitive deps) lives in requirements.lock,
+# which is what CI and the desktop sidecar build install from. Regenerate the
+# lock with:  pip-compile --output-file=requirements.lock requirements.txt
+python-dotenv==1.2.2
+fastapi==0.136.1
+slowapi==0.1.6
+uvicorn==0.27.1
+python-multipart==0.0.28
+numpy==1.26.4
+pandas==2.2.0
+openpyxl==3.1.5
+pydantic==2.13.4
+pyarrow==24.0.0
+fastparquet==2026.3.0
+rank-bm25==0.2.2
+starlette==1.0.1
+urllib3==2.7.0
+requests==2.34.2
+idna==3.15
+webserp==0.1.4
+llama-cpp-python==0.3.23
+beautifulsoup4==4.14.3
+trafilatura==2.0.0
+Pillow==12.2.0
+huggingface-hub==1.14.0
+pypdfium2==4.30.0
