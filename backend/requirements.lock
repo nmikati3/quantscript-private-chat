@@ -101,7 +101,7 @@ markupsafe==3.0.3
     # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
-numpy==1.26.4
+numpy==2.3.5
     # via
     #   -r requirements.txt
     #   fastparquet
@@ -114,7 +114,7 @@ packaging==26.2
     # via
     #   fastparquet
     #   huggingface-hub
-pandas==2.2.0
+pandas==2.3.3
     # via
     #   -r requirements.txt
     #   fastparquet

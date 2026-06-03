@@ -7,8 +7,8 @@ fastapi==0.136.1
 slowapi==0.1.6
 uvicorn==0.27.1
 python-multipart==0.0.28
-numpy==1.26.4
-pandas==2.2.0
+numpy==2.3.5
+pandas==2.3.3
 openpyxl==3.1.5
 pydantic==2.13.4
 pyarrow==24.0.0
