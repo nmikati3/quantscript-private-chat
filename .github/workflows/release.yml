@@ -15,8 +15,10 @@ concurrency:
 
 jobs:
   build-macos:
-    # macos-14 is an Apple Silicon (arm64) image -> produces the aarch64 .dmg.
-    runs-on: macos-14
+    # macos-15 is an Apple Silicon (arm64) image -> produces the aarch64 .dmg.
+    # (macos-14's provisioner has a known bug where Tauri's bundle_dmg.sh fails
+    # on the Finder AppleScript step: actions/runner-images#12482.)
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
