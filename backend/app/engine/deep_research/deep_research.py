@@ -12,18 +12,16 @@ from app.engine.llm.inference import get_structured_llm_response, get_llm_respon
 from app.engine.deep_research.utils import (
     get_today_str,
     get_buffer_string,
-    filter_messages,
-    remove_up_to_last_ai_message,
     is_token_limit_exceeded,
-    get_all_tools,
-    think_tool as think_tool_function,
+    truncate_preserving_sources,
+    format_sources_block,
 )
 from app.engine.deep_research.prompts import (
     compress_research_simple_human_message,
     compress_research_system_prompt,
     final_report_generation_prompt,
     supervisor_reflect_prompt,
-    research_system_prompt,
+    researcher_decision_prompt,
     transform_messages_into_research_topic_prompt,
 )
 
@@ -32,8 +30,33 @@ logger = logging.getLogger(__name__)
 MAX_TOKENS_COMPRESSION = int(os.environ.get("MAX_TOKENS_COMPRESSION", "8192"))
 MAX_TOKENS_FINAL_REPORT = int(os.environ.get("MAX_TOKENS_FINAL_REPORT", "8192"))
 MAX_CONCURRENT_RESEARCH_UNITS = int(os.environ.get("MAX_CONCURRENT_RESEARCH_UNITS", "5"))
+# How many supervisor planning rounds (topics) the workflow runs.
 MAX_RESEARCHER_ITERATIONS = int(os.environ.get("MAX_RESEARCHER_ITERATIONS", "5"))
+# How many web searches a single researcher may run for one topic.
+MAX_RESEARCHER_SEARCHES = int(os.environ.get("MAX_RESEARCHER_SEARCHES", "3"))
 N_CTX = int(os.environ.get("N_CTX", "32768"))
+# How many times to re-sample a structured decision when its JSON can't be parsed/validated.
+MAX_SUPERVISOR_PARSE_RETRIES = int(os.environ.get("MAX_SUPERVISOR_PARSE_RETRIES", "2"))
+
+# A healthy compression preserves the gathered findings and their sources. Weaker
+# models sometimes return only a few words of query metadata or the error string
+# below instead of real synthesis, in which case the raw notes are the better
+# input for the final report.
+_MIN_USABLE_COMPRESSION_CHARS = 200
+_COMPRESSION_ERROR_PREFIX = "Error synthesizing research report"
+
+
+def _compression_is_usable(compressed: str) -> bool:
+    """Return True when ``compress_research`` produced a real synthesis.
+
+    Used to decide whether the final report should consume the researcher's
+    compressed findings (preferred) or fall back to the raw web search output.
+    """
+    if not compressed:
+        return False
+    if compressed.startswith(_COMPRESSION_ERROR_PREFIX):
+        return False
+    return len(compressed.strip()) >= _MIN_USABLE_COMPRESSION_CHARS
 
 
 async def write_research_brief(
@@ -50,14 +73,18 @@ async def write_research_brief(
     class TransformMessagesIntoResearchTopic(BaseModel):
         research_question: str
 
-    system_prompt = transform_messages_into_research_topic_prompt.format(
+    # The prompt already embeds the full conversation, so a single user turn is
+    # enough (and Gemma's template would drop a system-role message anyway).
+    prompt = transform_messages_into_research_topic_prompt.format(
         messages=get_buffer_string(messages),
         date=get_today_str(),
     )
-    messages_with_system = messages[:-1] + [{"role": "system", "content": system_prompt}] + messages[-1:]
 
-    response = get_structured_llm_response(TransformMessagesIntoResearchTopic, messages_with_system)
-    
+    response = get_structured_llm_response(
+        TransformMessagesIntoResearchTopic,
+        [{"role": "user", "content": prompt}],
+    )
+
     return response.research_question
 
 
@@ -120,292 +147,269 @@ async def supervisor(supervisor_messages: List[Dict[str, Any]], research_brief: 
         date=get_today_str(),
         max_researcher_iterations=MAX_RESEARCHER_ITERATIONS,
     )
-    messages =  supervisor_messages + [{"role": "system", "content": system_prompt}]
-    messages.append({"role": "user", "content": f"Research question: {research_brief}"})
-
-    logger.debug("Supervisor messages: %d items", len(messages))
-    decision = get_structured_llm_response(SupervisorDecision, messages)
-    logger.debug("Supervisor decision: is_complete=%s, reflection=%s...", decision.is_complete, decision.reflection[:100])
-
-    return decision
-
-
-async def researcher(researcher_messages: List[Dict[str, Any]],research_topic: str) -> Dict[str, Any]:
-    """Individual researcher that conducts focused research on specific topics.
-    
-    Args:
-        researcher_messages: List of message dicts for researcher conversation
-        research_topic: The specific topic to research
-        
-    Returns:
-        Dict with 'response' (message dict) and 'next_step' ('researcher_tools')
-    """
-    # Get available tools
-    tools = get_all_tools()
-    if len(tools) == 0:
-        raise ValueError(
-            "No tools found to conduct research."
-        )
-    
-    # Prepare system prompt
-    researcher_prompt = research_system_prompt.format(
-        date=get_today_str(),
-    )
-    
-    # Prepare messages
-    messages = [{"role": "system", "content": researcher_prompt}] + researcher_messages
-    
-    # Get response with tools
-    response = await get_llm_response_with_tools(
-        messages=messages,
-        tools=tools
-    )
-    
-    return {
-        "response": response,
-        "next_step": "researcher_tools"
+    # Gemma's template ignores system-role messages, so fold the instructions
+    # into the user turn that also carries the research question.
+    research_message = {
+        "role": "user",
+        "content": f"{system_prompt}\n\nResearch question: {research_brief}",
     }
 
-
-async def execute_tool_safely(tool_name: str, args: Dict[str, Any]) -> str:
-    """Safely execute a tool with error handling.
-    
-    Args:
-        tool_name: Name of the tool to execute
-        args: Arguments for the tool
-        
-    Returns:
-        String result from tool execution
-    """
-
-    logger.info(f"Executing tool: {tool_name}")
-    try:
-        if tool_name == "think_tool":
-            reflection = args.get("reflection", "")
-            return think_tool_function(reflection)
-
-        elif tool_name == "web_search":
-            query = args.get("query", "")
-            if not query:
-                return "Error: web_search tool requires a 'query' parameter"
-            
-            articles = await web_search_and_fetch_articles_async(query)
-            
-            if len(articles) == 0:
-                return "No relevant articles found for the given query."
-
-            return str(articles)
-
-        else:
-            return f"Tool {tool_name} not yet implemented"
-    except Exception as e:
-        logger.error(f"Error executing tool {tool_name}: {str(e)}", exc_info=True)
-        return f"Error executing tool {tool_name}: the operation failed."
-
-
-async def researcher_tools(researcher_messages: List[Dict[str, Any]],tool_call_iterations: int, progress_callback=None) -> Dict[str, Any]:
-    """Execute tools called by the researcher, including search tools and strategic thinking.
-    
-    Args:
-        researcher_messages: List of message dicts including the latest assistant response
-        tool_call_iterations: Current iteration count
-        progress_callback: Optional callback for progress updates
-        
-    Returns:
-        Dict with 'next_step' ('researcher', 'compress_research') and state updates
-    """
-    if not researcher_messages:
-        return {"next_step": "compress_research", "researcher_messages": []}
-    
-    most_recent_message = researcher_messages[-1]
-    
-    # Check early exit conditions
-    tool_calls = most_recent_message.get("tool_calls", [])
-    has_tool_calls = bool(tool_calls)
-    
-    if not has_tool_calls:
-        return {"next_step": "compress_research", "researcher_messages": []}
-    
-    # Execute all tool calls
-    tool_outputs = []
-    for tool_call in tool_calls:
-        function_info = tool_call.get("function", {})
-        tool_name = function_info.get("name", "")
-        
+    # The supervisor keeps every past reflection and the findings from each round
+    # in its context, so the prompt grows with the conversation and can exceed the
+    # model's context window after a few iterations. Drop the oldest history
+    # entries and retry on a token-limit error so a long run degrades gracefully
+    # instead of crashing the whole workflow.
+    history = list(supervisor_messages)
+    parse_retries = 0
+    while True:
+        messages = history + [research_message]
+        logger.debug("Supervisor messages: %d items", len(messages))
         try:
-            args = json.loads(function_info.get("arguments", "{}"))
-        except json.JSONDecodeError:
-            args = {}
-        
-        # Report tool usage
-        if progress_callback:
-            try:
-                if tool_name == "web_search":
-                    query = args.get("query", "")
-                    progress_callback(f"🔍 Searching the web: {query[:150]}...")
-                elif tool_name == "think_tool":
-                    reflection = args.get("reflection", "")
-                    progress_callback(f"💭 Researcher thinking: {reflection[:200]}...")
-                else:
-                    progress_callback(f"🔧 Using tool: {tool_name}")
-            except Exception as e:
-                logger.error(f"Error calling progress_callback researcher_tools: {e}")
-                pass
-        
-        observation = await execute_tool_safely(tool_name, args)
-        
-        # Report tool results
-        if progress_callback:
-            try:
-                if tool_name == "web_search":
-                    if "articles" in observation:
-                        progress_callback(f"✅ {observation.split(chr(10))[0]}")
-            except Exception as e:
-                logger.error(f"Error calling progress_callback researcher_tools: {e}")
-                pass
-        
-        tool_outputs.append({
-            "role": "tool",
-            "content": observation,
-            "tool_call_id": tool_call["id"]
-        })
-    
-    # Check late exit conditions
-    exceeded_iterations = tool_call_iterations >= 3
-    research_complete_called = any(
-        tool_call.get("function", {}).get("name") == "ResearchComplete"
-        for tool_call in tool_calls
+            decision = get_structured_llm_response(SupervisorDecision, messages)
+            logger.debug("Supervisor decision: is_complete=%s, reflection=%s...", decision.is_complete, decision.reflection[:100])
+            return decision
+        except Exception as e:
+            if is_token_limit_exceeded(e) and history:
+                drop = max(1, len(history) // 4)
+                logger.warning(
+                    "Supervisor context exceeded the window; dropping %d oldest message(s) and retrying",
+                    drop,
+                )
+                history = history[drop:]
+                continue
+            # Weaker models occasionally emit JSON that fails to parse or validate
+            # (often a reflection long enough to be truncated at max_tokens).
+            # Re-sample a few times — a fresh, shorter sample usually fits the
+            # schema — before letting the error propagate.
+            if not is_token_limit_exceeded(e) and parse_retries < MAX_SUPERVISOR_PARSE_RETRIES:
+                parse_retries += 1
+                logger.warning(
+                    "Supervisor response could not be parsed (%s); re-sampling (%d/%d)",
+                    e,
+                    parse_retries,
+                    MAX_SUPERVISOR_PARSE_RETRIES,
+                )
+                continue
+            raise
+
+
+class ResearcherDecision(BaseModel):
+    reasoning: str
+    action: str
+    search_query: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_fields(cls, data: Any) -> Any:
+        """Tolerate the loose JSON weaker models emit: fill action/query sensibly."""
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        reasoning = str(out.get("reasoning") or out.get("reflection") or "").strip()
+        if not reasoning:
+            raise ValueError("reasoning must be non-empty")
+        out["reasoning"] = reasoning
+        query = str(out.get("search_query") or out.get("query") or "").strip()
+        out["search_query"] = query
+        action = str(out.get("action") or "").strip().lower()
+        if action not in ("search", "complete"):
+            # Infer from whether a query was supplied so the loop still progresses.
+            action = "search" if query else "complete"
+        out["action"] = action
+        return out
+
+
+def _format_articles(articles: List[Dict[str, Any]]) -> str:
+    """Render structured search results into readable text for the model."""
+    blocks = []
+    for a in articles:
+        title = (a.get("title") or "").strip()
+        url = (a.get("url") or "").strip()
+        content = (a.get("content") or "").strip()
+        header = " — ".join(p for p in (title, url) if p)
+        blocks.append(f"{header}\n{content}".strip())
+    return "\n\n".join(blocks)
+
+
+def researcher_decide(research_topic: str, findings_so_far: str) -> ResearcherDecision:
+    """Decide the researcher's next step via structured JSON (no tool calling).
+
+    Mirrors the deterministic supervisor: the model reflects on findings gathered
+    so far and either requests one more web search or signals it has enough. Runs
+    on the model's native template; re-samples a few times on unparseable JSON.
+    """
+    prompt = researcher_decision_prompt.format(
+        date=get_today_str(),
+        research_topic=research_topic,
+        findings=findings_so_far or "(no searches run yet)",
+        max_searches=MAX_RESEARCHER_SEARCHES,
     )
-    
-    if exceeded_iterations or research_complete_called:
-        return {
-            "next_step": "compress_research",
-            "researcher_messages": tool_outputs
-        }
-    
-    return {
-        "next_step": "researcher",
-        "researcher_messages": tool_outputs
-    }
+    messages = [{"role": "user", "content": prompt}]
+    parse_retries = 0
+    while True:
+        try:
+            return get_structured_llm_response(ResearcherDecision, messages)
+        except Exception as e:
+            if not is_token_limit_exceeded(e) and parse_retries < MAX_SUPERVISOR_PARSE_RETRIES:
+                parse_retries += 1
+                logger.warning(
+                    "Researcher decision could not be parsed (%s); re-sampling (%d/%d)",
+                    e, parse_retries, MAX_SUPERVISOR_PARSE_RETRIES,
+                )
+                continue
+            raise
 
 
 async def compress_research(
-    researcher_messages: List[Dict[str, Any]],
+    transcript: str,
+    sources: List[Dict[str, str]],
     progress_callback=None,
 ) -> Dict[str, Any]:
-    """Compress and synthesize research findings into a concise, structured summary.
-    
+    """Synthesize the gathered findings into a clean, citation-preserving summary.
+
     Args:
-        researcher_messages: List of message dicts from researcher
+        transcript: Plain-text record of the searches run and their results.
+        sources: Structured ``{"title", "url"}`` records for authoritative citations.
         progress_callback: Optional callback for progress updates
-        
+
     Returns:
         Dict with 'compressed_research' and 'raw_notes'
     """
-    # Prepare messages for compression
-    messages = researcher_messages.copy()
-    messages.append({"role": "user", "content": compress_research_simple_human_message})
+    if not transcript.strip():
+        return {"compressed_research": "", "raw_notes": []}
 
-    # Attempt compression with retry logic
+    # Gemma ignores system-role messages, so fold the compression instructions
+    # and the findings into a single user turn.
+    findings = transcript
     synthesis_attempts = 0
     max_attempts = 3
-    
+
     while synthesis_attempts < max_attempts:
         try:
-            compression_prompt = compress_research_system_prompt.format(date=get_today_str())
-            messages_with_system = [{"role": "system", "content": compression_prompt}] + messages
-            
-            response = await get_llm_response_with_tools(
-                messages=messages_with_system,
-                max_tokens=MAX_TOKENS_COMPRESSION
+            prompt = (
+                f"{compress_research_system_prompt.format(date=get_today_str())}\n\n"
+                f"<RawFindings>\n{findings}\n</RawFindings>\n\n"
+                f"{compress_research_simple_human_message}"
             )
-            
-            # Extract raw notes
-            raw_notes_content = "\n".join([
-                str(msg.get("content", ""))
-                for msg in filter_messages(researcher_messages, include_types=["tool", "assistant"])
-            ])
-            
+            response = await get_llm_response_with_tools(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=MAX_TOKENS_COMPRESSION,
+            )
+
             compressed = response.get("content", "")
             if progress_callback:
                 try:
                     progress_callback(f"✅ Research compressed: {len(compressed)} characters")
                 except Exception as e:
                     logger.error(f"Error calling progress_callback compress_research: {e}")
-                    pass
-            
+
             return {
                 "compressed_research": compressed,
-                "raw_notes": [raw_notes_content] if raw_notes_content else []
+                "raw_notes": [transcript],
             }
-            
+
         except Exception as e:
             logger.error(f"Error in compress_research: {str(e)}")
             synthesis_attempts += 1
-            
+
             if is_token_limit_exceeded(e):
-                # Convert to list of dicts for remove_up_to_last_ai_message
-                messages = remove_up_to_last_ai_message(messages)
+                # Shrink the findings (preserving sources) and retry.
+                findings = truncate_preserving_sources(
+                    findings, max(2000, len(findings) // 2), sources=sources
+                )
                 continue
-            
+
             if synthesis_attempts >= max_attempts:
                 break
-    
-    # Return error result
-    raw_notes_content = "\n".join([
-        str(msg.get("content", ""))
-        for msg in filter_messages(researcher_messages, include_types=["tool", "assistant"])
-    ])
-    
+
     return {
         "compressed_research": "Error synthesizing research report: Maximum retries exceeded",
-        "raw_notes": [raw_notes_content] if raw_notes_content else []
+        "raw_notes": [transcript],
     }
 
 
 async def researcher_workflow(research_topic: str, progress_callback=None) -> Dict[str, Any]:
-    """Complete workflow for a single researcher.
-    
+    """Conduct deterministic, structured research on a single topic.
+
+    Drives a search loop from orchestration code: the model decides (via JSON)
+    whether to run another web search or stop, and this function executes the
+    searches directly. No function calling involved.
+
     Args:
         research_topic: The topic to research
         progress_callback: Optional callback for progress updates
-        
+
     Returns:
-        Dict with 'compressed_research' and 'raw_notes'
+        Dict with 'compressed_research', 'raw_notes', and 'sources'
+        (structured ``{"title", "url"}`` records from the web searches)
     """
-    researcher_messages = [{"role": "user", "content": research_topic}]
-    tool_call_iterations = 0
-    
-    # Research loop
-    while tool_call_iterations < MAX_RESEARCHER_ITERATIONS:
-        # Get researcher response
-        researcher_result = await researcher(researcher_messages, research_topic)
-        researcher_messages.append(researcher_result["response"])
-        tool_call_iterations += 1
-        
-        # Execute tools
-        if researcher_result["next_step"] == "researcher_tools":
-            tools_result = await researcher_tools(
-                researcher_messages,
-                tool_call_iterations,
-                progress_callback,
-            )
-            researcher_messages.extend(tools_result.get("researcher_messages", []))
-            
-            if tools_result["next_step"] == "compress_research":
-                if progress_callback:
-                    try:
-                        progress_callback("📝 Compressing research findings...")
-                    except Exception as e:
-                        logger.error(f"Error calling progress_callback researcher_workflow: {e}")
-                        pass
-                break
-        
-        if tool_call_iterations >= MAX_RESEARCHER_ITERATIONS:
+    sources: List[Dict[str, str]] = []
+    transcript_parts: List[str] = []
+    seen_queries = set()
+    # Budget the findings we feed back into the decision prompt so a long topic
+    # does not blow the context window.
+    decision_context_chars = max(2000, (N_CTX * 2) // MAX_RESEARCHER_SEARCHES)
+
+    for _ in range(MAX_RESEARCHER_SEARCHES):
+        findings_so_far = truncate_preserving_sources(
+            "\n\n".join(transcript_parts), decision_context_chars, sources=sources
+        )
+        try:
+            decision = researcher_decide(research_topic, findings_so_far)
+        except Exception as e:
+            logger.warning("Researcher decision failed; ending search loop: %s", e)
             break
-    
-    # Compress research
-    compression_result = await compress_research(researcher_messages, progress_callback)
+
+        if progress_callback:
+            try:
+                progress_callback(f"💭 Researcher thinking: {decision.reasoning[:200]}...")
+            except Exception as e:
+                logger.error(f"Error calling progress_callback researcher_workflow: {e}")
+
+        query = decision.search_query.strip()
+        if decision.action == "complete" or not query or query in seen_queries:
+            break
+        seen_queries.add(query)
+
+        if progress_callback:
+            try:
+                progress_callback(f"🔍 Searching the web: {query[:150]}...")
+            except Exception as e:
+                logger.error(f"Error calling progress_callback researcher_workflow: {e}")
+
+        try:
+            articles = await web_search_and_fetch_articles_async(query)
+        except Exception as e:
+            logger.error(f"web_search failed for query '{query}': {e}", exc_info=True)
+            transcript_parts.append(f"## Search: {query}\n(search failed)")
+            continue
+
+        if not articles:
+            transcript_parts.append(f"## Search: {query}\nNo relevant articles found.")
+            continue
+
+        sources.extend(
+            {"title": a.get("title", ""), "url": a.get("url", "")}
+            for a in articles
+            if a.get("url")
+        )
+        if progress_callback:
+            try:
+                progress_callback(f"✅ Found {len(articles)} source(s)")
+            except Exception as e:
+                logger.error(f"Error calling progress_callback researcher_workflow: {e}")
+
+        transcript_parts.append(f"## Search: {query}\n{_format_articles(articles)}")
+
+    if progress_callback:
+        try:
+            progress_callback("📝 Compressing research findings...")
+        except Exception as e:
+            logger.error(f"Error calling progress_callback researcher_workflow: {e}")
+
+    transcript = "\n\n".join(transcript_parts)
+    compression_result = await compress_research(transcript, sources, progress_callback)
+    compression_result["sources"] = sources
     return compression_result
 
 
@@ -414,6 +418,7 @@ async def final_report_generation(
     research_brief: str,
     messages: List[Dict[str, Any]],
     progress_callback=None,
+    sources: List[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """Generate the final comprehensive research report with retry logic for token limits.
     
@@ -422,11 +427,21 @@ async def final_report_generation(
         research_brief: The original research brief
         messages: Original user messages
         progress_callback: Optional callback for progress updates
+        sources: Structured ``{"title", "url"}`` records captured from the web
+                 searches. Used to append an authoritative, de-duplicated Sources
+                 list to the findings and to preserve URLs on token-limit trims.
         
     Returns:
         Dict with 'final_report' and 'messages'
     """
     findings = "\n".join(notes)
+
+    # Append the authoritative source list captured from the search results so
+    # the report can always cite real URLs, even if the per-round synthesis
+    # dropped them. Built from structured records rather than regex.
+    sources_block = format_sources_block(sources)
+    if sources_block:
+        findings = f"{findings}\n\n{sources_block}"
     
     # Attempt report generation with token limit retry logic
     max_retries = 3
@@ -483,7 +498,12 @@ async def final_report_generation(
                 else:
                     findings_token_limit = int(findings_token_limit * 0.9)
                 
-                findings = findings[:findings_token_limit]
+                # Preserve the sources when trimming so the report can still cite
+                # URLs, which the prompt explicitly requires. Pass the structured
+                # records so the footer is authoritative rather than regex-derived.
+                findings = truncate_preserving_sources(
+                    findings, findings_token_limit, sources=sources
+                )
                 continue
             else:
                 return {
@@ -527,12 +547,32 @@ async def deep_research_workflow(
     supervisor_messages = []
     research_iterations = 0
     all_notes = []
+    # Authoritative source records (deduped by URL), captured structurally from
+    # each round's web searches rather than parsed back out of text.
+    all_sources: List[Dict[str, str]] = []
+    seen_source_urls = set()
 
     while research_iterations < MAX_RESEARCHER_ITERATIONS:
         logger.info(f"Research iteration {research_iterations + 1}, supervisor context length: {len(supervisor_messages)}")
 
         # Think phase: supervisor reflects on findings and decides next action
-        decision = await supervisor(supervisor_messages, research_question)
+        try:
+            decision = await supervisor(supervisor_messages, research_question)
+        except Exception as e:
+            logger.error(f"Supervisor step failed: {e}", exc_info=True)
+            if all_notes:
+                # A single failed planning step (e.g. unparseable/truncated JSON
+                # from a weak model, or a context-limit error) must not abort the
+                # whole run. Stop the loop and write the report from the findings
+                # gathered so far.
+                if progress_callback:
+                    try:
+                        progress_callback("⚠️ Planner step failed — finalizing the report with findings so far")
+                    except Exception:
+                        pass
+                break
+            # Nothing has been gathered yet; surface the error to the caller.
+            raise
 
         if progress_callback:
             try:
@@ -574,17 +614,42 @@ async def deep_research_workflow(
             compressed = research_result.get("compressed_research", "")
             raw_notes = research_result.get("raw_notes", [])
             raw_notes_text = "\n".join(raw_notes)
+            round_sources = research_result.get("sources", [])
 
-            # Use raw tool outputs for supervisor context — the compress_research
-            # LLM step often fails with weaker models, producing only query metadata
-            # instead of actual findings. Raw notes contain the real web search results.
-            supervisor_findings = raw_notes_text if raw_notes_text else compressed
-            # Keep within a reasonable size for the supervisor's context window
-            max_findings_chars = N_CTX * 3
-            if len(supervisor_findings) > max_findings_chars:
-                supervisor_findings = supervisor_findings[:max_findings_chars] + "\n\n[...truncated for length]"
+            # Accumulate this round's structured sources, de-duplicating by URL.
+            for src in round_sources:
+                url = (src or {}).get("url")
+                if url and url not in seen_source_urls:
+                    seen_source_urls.add(url)
+                    all_sources.append(src)
 
-            all_notes.append(supervisor_findings)
+            # The final report should consume the researcher's synthesized
+            # findings, not raw search dumps. Fall back to raw notes only when
+            # compression failed (weaker models sometimes emit only query
+            # metadata or an error instead of real synthesis).
+            if _compression_is_usable(compressed):
+                report_findings = compressed
+            else:
+                logger.warning(
+                    "compress_research output unusable for round %d; "
+                    "falling back to raw notes for the final report",
+                    research_iterations + 1,
+                )
+                report_findings = raw_notes_text if raw_notes_text else compressed
+
+            # Keep the full synthesis for the final report writer.
+            all_notes.append(report_findings)
+
+            # The supervisor keeps the findings from every round in its context,
+            # so feed it only a bounded slice of the window (~3 chars/token)
+            # instead of letting one round fill it. Pass this round's structured
+            # sources so the preserved citation footer is authoritative rather
+            # than regex-derived. Accumulated rounds then stay within the context
+            # window; the supervisor() retry is the backstop.
+            max_findings_chars = max(2000, (N_CTX * 2) // MAX_RESEARCHER_ITERATIONS)
+            supervisor_findings = truncate_preserving_sources(
+                report_findings, max_findings_chars, sources=round_sources
+            )
 
             if progress_callback:
                 try:
@@ -626,6 +691,7 @@ async def deep_research_workflow(
         research_question,
         messages,
         progress_callback,
+        sources=all_sources,
     )
     
     if progress_callback:

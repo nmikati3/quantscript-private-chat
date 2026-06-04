@@ -46,6 +46,9 @@ logs/
 # PyInstaller / packaging output (often at repo root)
 /build/
 
+# Local release-verification artifacts (downloaded DMG + extracted .app)
+/_verify/
+
 .pytest_cache/
 
 # Model weights and packaged installers (never commit these)

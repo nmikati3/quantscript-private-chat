@@ -47,6 +47,12 @@ const ACTIONS = [
   "Deep Research"
 ];
 
+// Display-only labels for the action pills. The keys above remain the internal
+// identifiers used in logic/payloads; only the rendered text differs.
+const ACTION_LABELS: Record<string, string> = {
+  "Deep Research": "Deep Research - Lite",
+};
+
 function fileExtensionLower(path: string): string {
   const name = path.replace(/\\/g, "/").split("/").pop() ?? "";
   const i = name.lastIndexOf(".");
@@ -579,7 +585,7 @@ export default function MessageInput({ onSend, updateLastMessage, messages, onLo
                 transition: "all 0.2s ease"
               }}
             >
-              {action}
+              {ACTION_LABELS[action] ?? action}
             </button>
           );
         })}
@@ -738,7 +744,7 @@ export default function MessageInput({ onSend, updateLastMessage, messages, onLo
                     deepResearchBlocksCurrentChat
                       ? "Unavailable while deep research is running..."
                       : selectedAction
-                        ? `Ask with "${selectedAction}"...`
+                        ? `Ask with "${ACTION_LABELS[selectedAction] ?? selectedAction}"...`
                         : "Ask anything..."
                   }
                   style={{

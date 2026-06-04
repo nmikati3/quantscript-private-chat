@@ -12,7 +12,7 @@ Great for day-to-day chats, for brainstorming private business ideas without any
 
 ### Other features
 
-- **Deep Research**: the app can run a lighter version of Deep Research even with a lightweight gemma4 4B model.
+- **Deep Research - Lite**: the app can run a lighter version of Deep Research even with a lightweight gemma4 4B model.
 - **Web Search**: the app can search the web.
 - **No third-party API keys required.**
 
@@ -167,7 +167,7 @@ The only outbound network traffic is:
 
 The workflow at
 [.github/workflows/security-checks.yml](.github/workflows/security-checks.yml)
-runs on every PR, push to `main`, and `v*` release tag:
+runs on every PR, push to `main`, and `v`* release tag:
 
 
 | Check                       | Tool                                              |

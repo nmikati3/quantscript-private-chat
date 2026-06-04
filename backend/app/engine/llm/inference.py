@@ -1,5 +1,6 @@
 import os
 import gc
+import re
 from app.engine.llm.prompts import create_title_from_messages_prompt, write_web_search_query_prompt
 from pydantic import BaseModel
 import logging
@@ -21,9 +22,19 @@ LLAMA_FILENAME = os.environ.get("LLAMA_FILENAME","gemma-4-E4B-it-Q8_0.gguf")
 N_CTX = int(os.environ.get("N_CTX", "32768"))
 LLAMA_MMPROJ_FILENAME = os.environ.get("LLAMA_MMPROJ_FILENAME","mmproj-F16.gguf")
 
+# Chat-template modes. The model speaks a different template per mode, and the
+# template is fixed at construction time, so changing mode means rebuilding the
+# Llama object (see `initialize_llama`).
+MODE_TEXT = "text"            # plain chat -> the model's native Gemma template
+MODE_VISION = "vision"        # a file is attached -> multimodal LLaVA handler
+MODE_DEEP_RESEARCH = "deep_research"  # deterministic JSON workflow -> Gemma template
+
 MMPROJ_PATH: str | None = None
 CHAT_HANDLER = None
 CLIENT_LLAMA = None
+# The mode the currently-loaded model was built with, so we can skip an
+# expensive reload when the next request needs the same template.
+_CURRENT_MODE: str | None = None
 
 
 def _ensure_mmproj_path(report_progress: bool) -> str:
@@ -41,15 +52,54 @@ def _ensure_mmproj_path(report_progress: bool) -> str:
     return MMPROJ_PATH
 
 
-def _get_chat_handler():
+def _get_chat_handler(mode: str) -> dict:
+    """Return the `Llama` chat-template kwargs to use for the given mode.
+
+    This is the single place that decides how the model is prompted, so it
+    speaks the template it was actually trained on:
+      - file attached -> ``Llava16ChatHandler`` (multimodal / vision)
+      - otherwise     -> ``chat_format="gemma"`` (the model's native template)
+
+    Deep research uses the native Gemma template too: it is a deterministic,
+    structured-JSON workflow that drives web search from orchestration code, so
+    it no longer needs the ``chatml-function-calling`` template (which prompted
+    Gemma off-distribution and silently dropped tool-result messages).
+    """
     global CHAT_HANDLER
-    if CHAT_HANDLER is None:
-        report = not is_ready()
-        CHAT_HANDLER = Llava16ChatHandler(
-            clip_model_path=_ensure_mmproj_path(report_progress=report),
-            verbose=False,
-        )
-    return CHAT_HANDLER
+
+    if mode == MODE_VISION:
+        if CHAT_HANDLER is None:
+            report = not is_ready()
+            CHAT_HANDLER = Llava16ChatHandler(
+                clip_model_path=_ensure_mmproj_path(report_progress=report),
+                verbose=False,
+            )
+        return {"chat_handler": CHAT_HANDLER}
+
+    # Plain text chat: use Gemma's own chat template (correct turn markers and
+    # stop tokens) instead of the vision handler's generic concatenation.
+    return {"chat_format": "gemma"}
+
+
+def _messages_have_attachment(messages) -> bool:
+    """True when any message carries inlined file content.
+
+    Attachment processing turns a message's ``content`` into a list of parts
+    (image/PDF pages or table-search text); plain text turns keep a string. Only
+    the list form needs the multimodal chat handler.
+    """
+    return any(
+        isinstance(m, dict) and isinstance(m.get("content"), list)
+        for m in messages
+    )
+
+
+def _resolve_model_mode(deep_research: bool, has_attachment: bool) -> str:
+    if deep_research:
+        return MODE_DEEP_RESEARCH
+    if has_attachment:
+        return MODE_VISION
+    return MODE_TEXT
 
 
 def _close_resource(resource, label: str) -> None:
@@ -66,7 +116,7 @@ def _close_resource(resource, label: str) -> None:
 
 def _unload_llama() -> None:
     """Release the loaded model and vision handler before swapping variants."""
-    global CLIENT_LLAMA, CHAT_HANDLER
+    global CLIENT_LLAMA, CHAT_HANDLER, _CURRENT_MODE
 
     _close_resource(CLIENT_LLAMA, "LLM client")
     CLIENT_LLAMA = None
@@ -74,25 +124,42 @@ def _unload_llama() -> None:
     _close_resource(CHAT_HANDLER, "chat handler")
     CHAT_HANDLER = None
 
+    _CURRENT_MODE = None
+
     gc.collect()
 
 
-def initialize_llama(deep_research=False):
-    global CLIENT_LLAMA, MMPROJ_PATH, CHAT_HANDLER
+def initialize_llama(deep_research=False, has_attachment=False):
+    """Ensure the model is loaded with the right chat template for the request.
+
+    The chat template is fixed when the ``Llama`` object is built, so switching
+    between text, vision and deep-research modes requires rebuilding it. We track
+    the active mode and only reload when it actually changes.
+    """
+    global CLIENT_LLAMA, MMPROJ_PATH, _CURRENT_MODE
 
     if not LLAMA_REPO_ID or not LLAMA_FILENAME:
         raise RuntimeError("LLAMA_REPO_ID and LLAMA_FILENAME must be set")
+
+    mode = _resolve_model_mode(deep_research, has_attachment)
+
+    # Already loaded with the right template — reuse it (avoids reloading the
+    # whole model on every message).
+    if CLIENT_LLAMA is not None and _CURRENT_MODE == mode:
+        return CLIENT_LLAMA
 
     _unload_llama()
 
     report_progress = not is_ready()
     phase_id = "llm"
 
+    # Only the vision handler needs the multimodal projector.
+    needs_vision = mode == MODE_VISION
     main_path, mmproj_path = download_model_files(
         phase_id,
         LLAMA_REPO_ID,
         main_filename=LLAMA_FILENAME,
-        mmproj_filename=LLAMA_MMPROJ_FILENAME if not deep_research else None,
+        mmproj_filename=LLAMA_MMPROJ_FILENAME if needs_vision else None,
         report_progress=report_progress,
     )
     if mmproj_path:
@@ -101,24 +168,15 @@ def initialize_llama(deep_research=False):
     if report_progress:
         set_phase_progress(phase_id, percent=99, detail="Loading model into memory…")
 
-    if deep_research: # Deep research uses function calling that is not supported in the chat handler, so we need to use the chat format "chatml-function-calling".
-        CLIENT_LLAMA = Llama( # chatml-function-calling does not support images so we only use it for deep research
-            model_path=main_path,
-            n_ctx=N_CTX,
-            n_gpu_layers=-1,
-            flash_attn=True,
-            chat_format="chatml-function-calling",
-            verbose=False,
-        )
-    else:
-        CLIENT_LLAMA = Llama(
-            model_path=main_path,
-            n_ctx=N_CTX,
-            n_gpu_layers=-1,
-            flash_attn=True,
-            chat_handler=_get_chat_handler(),
-            verbose=False,
-        )
+    CLIENT_LLAMA = Llama(
+        model_path=main_path,
+        n_ctx=N_CTX,
+        n_gpu_layers=-1,
+        flash_attn=True,
+        verbose=False,
+        **_get_chat_handler(mode),
+    )
+    _CURRENT_MODE = mode
 
     return CLIENT_LLAMA
 
@@ -136,6 +194,35 @@ def trim_chat_messages(messages: list, max_messages: int | None = None) -> list:
 
     trimmed = non_system[-limit:]
     return  trimmed
+
+
+def _apply_system_prompt(messages: list, system_prompt: str) -> list:
+    """Attach the system prompt in a form the active chat template will honor.
+
+    Gemma's template ignores ``system`` role messages, so in text mode the
+    instructions are merged into the most recent user turn instead (otherwise
+    the system prompt — including web-search article context — would be silently
+    dropped). Vision and deep-research templates keep a real system message,
+    placed just before the final user turn as before.
+    """
+    if not system_prompt:
+        return messages
+
+    if _CURRENT_MODE == MODE_TEXT:
+        merged = list(messages)
+        for i in range(len(merged) - 1, -1, -1):
+            m = merged[i]
+            if (
+                isinstance(m, dict)
+                and m.get("role") == "user"
+                and isinstance(m.get("content"), str)
+            ):
+                merged[i] = {**m, "content": f"{system_prompt}\n\n{m['content']}"}
+                return merged
+        # No user turn to merge into; fall back to a leading system message.
+        return [{"role": "system", "content": system_prompt}] + merged
+
+    return messages[:-1] + [{"role": "system", "content": system_prompt}] + messages[-1:]
 
 
 def write_web_search_query(messages):
@@ -158,7 +245,7 @@ def write_web_search_query(messages):
     if not slim:
         return "No messages found."
 
-    messages = slim[:-1] + [{"role": "system", "content": write_web_search_query_prompt}] + slim[-1:]
+    messages = _apply_system_prompt(slim, write_web_search_query_prompt)
 
     response = get_structured_llm_response(WriteWebSearchQuery, messages)
 
@@ -211,12 +298,18 @@ def stream_llm_response(messages,search=False):
   messages = trim_chat_messages(messages)
   messages = [m for m in messages if m["role"] != "system"]
 
+  # Load the model with the right chat template for this request: the vision
+  # handler when a file is attached, otherwise Gemma's native template. This
+  # reloads the model only when the mode actually changes.
+  has_attachment = _messages_have_attachment(messages)
+  initialize_llama(deep_research=False, has_attachment=has_attachment)
+
   if search:
     system_prompt = web_search_system_prompt(messages)
   else:
     system_prompt = text_response_prompt
 
-  messages = messages[:-1] + [{"role": "system", "content": system_prompt}] + messages[-1:]
+  messages = _apply_system_prompt(messages, system_prompt)
 
   for attempt, temperature in enumerate(EMPTY_RESPONSE_RETRY_TEMPERATURES):
     produced_any = False
@@ -257,6 +350,61 @@ def stream_llm_response(messages,search=False):
 
 
 
+# Matches a dangling trailing fragment left when generation is cut off mid-object:
+# a trailing comma, or a quoted key optionally followed by a colon but no value.
+_TRAILING_JSON_FRAGMENT_RE = re.compile(r'(?:,|"(?:[^"\\]|\\.)*"\s*:?)\s*$')
+
+
+def _repair_truncated_json(text: str):
+  """Best-effort recovery of JSON truncated mid-generation (e.g. hit max_tokens).
+
+  Grammar-constrained completions are valid JSON only if generation finishes; when
+  the model is cut off mid-object the closing quotes/braces are missing. This walks
+  the structural state from the first ``{``, closes any dangling string, drops an
+  incomplete trailing key/value, and appends the missing closers. Returns the
+  parsed object, or ``None`` if nothing salvageable is found.
+  """
+  start = text.find("{")
+  if start == -1:
+    return None
+
+  in_string = False
+  escape = False
+  stack = []
+  for ch in text[start:]:
+    if escape:
+      escape = False
+    elif ch == "\\":
+      escape = in_string  # backslash only escapes inside a string
+    elif ch == '"':
+      in_string = not in_string
+    elif not in_string:
+      if ch in "{[":
+        stack.append("}" if ch == "{" else "]")
+      elif ch in "}]" and stack:
+        stack.pop()
+
+  candidate = text[start:]
+  if escape:  # a dangling backslash would escape our synthetic closing quote
+    candidate = candidate[:-1]
+  if in_string:
+    candidate += '"'
+  closers = "".join(reversed(stack))
+
+  # Close as-is; if that fails, progressively strip an incomplete trailing
+  # fragment (the part after the last complete value) and try again.
+  trimmed = candidate
+  for _ in range(4):
+    try:
+      return json.loads(trimmed + closers)
+    except json.JSONDecodeError:
+      stripped = _TRAILING_JSON_FRAGMENT_RE.sub("", trimmed.rstrip()).rstrip().rstrip(",")
+      if stripped == trimmed:
+        break
+      trimmed = stripped
+  return None
+
+
 def _parse_llm_structured_payload(raw: str):
   """Parse the model's JSON object. API uses json_object; ast.literal_eval breaks on real JSON and multiline strings."""
   text = raw.strip()
@@ -278,6 +426,11 @@ def _parse_llm_structured_payload(raw: str):
       return json.loads(snippet)
     except json.JSONDecodeError:
       pass
+  # Last resort: the completion was likely cut off mid-object (hit max_tokens).
+  repaired = _repair_truncated_json(text)
+  if repaired is not None:
+    logger.warning("Recovered a truncated structured LLM response via JSON repair")
+    return repaired
   raise ValueError("Could not parse structured LLM response as valid JSON")
 
 
@@ -297,17 +450,17 @@ def get_structured_llm_response(response_format, messages):
 
 
 async def get_llm_response_with_tools(messages, tools=None, max_tokens=None):
-  """Get LLM response with optional tool calling support.
-  
+  """Get a (plain-text) LLM response, with optional tool calling support.
+
   Args:
     messages: List of message dicts with 'role' and 'content'
     tools: Optional list of tool definitions
     max_tokens: Maximum tokens (optional)
-    
+
   Returns:
     Dict with 'content', 'role', and optionally 'tool_calls'
   """
-  
+
   kwargs = {
     "messages": messages
   }
@@ -363,7 +516,7 @@ def create_title_from_messages(messages):
     if not slim:
         return "New conversation"
 
-    messages = slim[:-1] + [{"role": "system", "content": create_title_from_messages_prompt}] + slim[-1:]
+    messages = _apply_system_prompt(slim, create_title_from_messages_prompt)
 
     response = get_structured_llm_response(CreateTitleFromMessages, messages)
 
