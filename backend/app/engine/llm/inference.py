@@ -10,6 +10,7 @@ from app.engine.llm.web_search import web_search_and_fetch_articles
 import json
 from llama_cpp.llama_chat_format import Llava16ChatHandler
 from app.engine.llm.model_download import download_model_files, download_mmproj
+from app.engine.llm.model_tiers import resolve_model_config
 from app.core.startup_state import is_ready, set_phase_progress
 
 logger = logging.getLogger(__name__)
@@ -17,10 +18,13 @@ logger = logging.getLogger(__name__)
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "8192"))
 CHAT_HISTORY_MAX_MESSAGES = int(os.environ.get("CHAT_HISTORY_MAX_MESSAGES", "5"))
 
-LLAMA_REPO_ID = os.environ.get("LLAMA_REPO_ID","unsloth/gemma-4-E4B-it-GGUF")
-LLAMA_FILENAME = os.environ.get("LLAMA_FILENAME","gemma-4-E4B-it-Q8_0.gguf")
-N_CTX = int(os.environ.get("N_CTX", "32768"))
-LLAMA_MMPROJ_FILENAME = os.environ.get("LLAMA_MMPROJ_FILENAME","mmproj-F16.gguf")
+# Pick the model variant/quant/context that fits this machine's unified memory
+# (env vars still override every field — see model_tiers.resolve_model_config).
+_MODEL_CONFIG = resolve_model_config()
+LLAMA_REPO_ID = _MODEL_CONFIG["repo_id"]
+LLAMA_FILENAME = _MODEL_CONFIG["filename"]
+N_CTX = _MODEL_CONFIG["n_ctx"]
+LLAMA_MMPROJ_FILENAME = _MODEL_CONFIG["mmproj_filename"]
 
 # Chat-template modes. The model speaks a different template per mode, and the
 # template is fixed at construction time, so changing mode means rebuilding the

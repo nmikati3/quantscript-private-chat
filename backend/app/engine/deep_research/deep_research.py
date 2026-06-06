@@ -8,7 +8,7 @@ import logging
 from typing import Dict, List, Any
 from pydantic import BaseModel, model_validator
 from app.engine.llm.web_search import web_search_and_fetch_articles_async
-from app.engine.llm.inference import get_structured_llm_response, get_llm_response_with_tools
+from app.engine.llm.inference import get_structured_llm_response, get_llm_response_with_tools, N_CTX
 from app.engine.deep_research.utils import (
     get_today_str,
     get_buffer_string,
@@ -34,7 +34,8 @@ MAX_CONCURRENT_RESEARCH_UNITS = int(os.environ.get("MAX_CONCURRENT_RESEARCH_UNIT
 MAX_RESEARCHER_ITERATIONS = int(os.environ.get("MAX_RESEARCHER_ITERATIONS", "5"))
 # How many web searches a single researcher may run for one topic.
 MAX_RESEARCHER_SEARCHES = int(os.environ.get("MAX_RESEARCHER_SEARCHES", "3"))
-N_CTX = int(os.environ.get("N_CTX", "32768"))
+# N_CTX is imported from inference so deep research uses the same memory-tiered
+# context window (env var N_CTX still overrides it there).
 # How many times to re-sample a structured decision when its JSON can't be parsed/validated.
 MAX_SUPERVISOR_PARSE_RETRIES = int(os.environ.get("MAX_SUPERVISOR_PARSE_RETRIES", "2"))
 
