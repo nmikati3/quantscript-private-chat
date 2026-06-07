@@ -25,19 +25,23 @@ Email: [info@quantscript.io](mailto:info@quantscript.io)
 
 QuantScript runs the model entirely on your own machine through `llama-cpp-python`, so requirements scale with the model. The desktop app **auto-detects your unified memory at startup** and picks the largest Gemma 4 variant that fits, so it runs well on everything from an 8 GB MacBook Air to a 64 GB Studio without any configuration:
 
-| Detected unified memory | Model (auto-selected)                       | Context window |
-| ----------------------- | ------------------------------------------- | -------------- |
-| < 16 GB                 | Gemma 4 **E2B**, `Q3_K_M` (~2.4 GB)         | 8K             |
-| 16 GB – 24 GB           | Gemma 4 **E4B**, `Q4_K_M` (~5.0 GB)         | 16K            |
-| ≥ 24 GB                 | Gemma 4 **E4B**, `Q8_0` (~8.2 GB)           | 32K            |
+
+| Detected unified memory | Model (auto-selected)               | Context window |
+| ----------------------- | ----------------------------------- | -------------- |
+| < 16 GB                 | Gemma 4 **E2B**, `Q3_K_M` (~2.4 GB) | 8K             |
+| 16 GB – 24 GB           | Gemma 4 **E4B**, `Q4_K_M` (~5.0 GB) | 16K            |
+| ≥ 24 GB                 | Gemma 4 **E4B**, `Q8_0` (~8.2 GB)   | 32K            |
+
 
 Vision/attachment support works on every tier. More memory means a higher-quality quant and a larger context window; lower tiers stay responsive on modest hardware.
+
 
 | Resource          | Minimum                    | Recommended  |
 | ----------------- | -------------------------- | ------------ |
 | OS (desktop app)  | macOS 10.15, Apple Silicon | Latest macOS |
 | OS (browser mode) | Any OS with Python 3.14+   | —            |
 | Unified Memory    | 8 GB                       | 24 GB+       |
+
 
 You can override the auto-selection (model, quant, and context window) with the `LLAMA_REPO_ID`, `LLAMA_FILENAME`, `LLAMA_MMPROJ_FILENAME`, and `N_CTX` environment variables — e.g. to run a larger model in browser mode via the backend `.env`. Browser mode runs on Intel Macs, Linux, and Windows; the prebuilt desktop `.dmg` is Apple Silicon only.
 
@@ -151,12 +155,13 @@ Tauri wraps the React frontend in a native macOS webview. On launch:
 ## Where your data lives
 
 
-| Data               | Location                                                                       | Leaves your machine?        |
-| ------------------ | ------------------------------------------------------------------------------ | --------------------------- |
-| Chat conversations | `~/Library/Application Support/com.quantscript.desktop/storage/conversations/` | No                          |
-| LLM model weights  | `~/Library/Application Support/com.quantscript.desktop/models/`                | No                          |
-| Hugging Face cache | `~/Library/Application Support/com.quantscript.desktop/cache/`                 | No                          |
-| Temp uploads       | `~/Library/Application Support/com.quantscript.desktop/tmp/`                   | Cleaned after each response |
+| Data               | Location                                                                       | Leaves your machine? |
+| ------------------ | ------------------------------------------------------------------------------ | -------------------- |
+| Chat conversations | `~/Library/Application Support/com.quantscript.desktop/storage/conversations/` | No                   |
+| LLM model weights  | `~/Library/Application Support/com.quantscript.desktop/models/`                | No                   |
+| Hugging Face cache | `~/Library/Application Support/com.quantscript.desktop/cache/`                 | No                   |
+
+
 
 
 The only outbound network traffic is:
@@ -167,22 +172,6 @@ The only outbound network traffic is:
 
 > **What leaves your machine when you use Search / Deep Research:** these features are **opt-in per message and off by default**. When you enable them, a search query **derived from your message (and recent conversation context)** is sent to a third-party search engine, and the resulting article URLs are fetched. In other words, "local and private" means *no conversation content leaves your machine by default*, but enabling Search/Deep Research necessarily transmits query content externally so the model can read the web. Leave these toggles off to stay fully offline (after the one-time model download).
 
-## Continuous integration
-
-The workflow at
-[.github/workflows/security-checks.yml](.github/workflows/security-checks.yml)
-runs on every PR, push to `main`, and `v`* release tag:
-
-
-| Check                       | Tool                                              |
-| --------------------------- | ------------------------------------------------- |
-| Python dependency audit     | `pip-audit` against `requirements.lock`           |
-| Backend tests               | `pytest` over `backend/tests/`                    |
-| Rust dependency audit       | `cargo audit` against `Cargo.lock`                |
-| NPM dependency audit        | `npm audit --audit-level=high`                    |
-| Frontend tests              | `npm test` (Vitest)                               |
-| Desktop config verification | `npm run desktop:verify` (CSP, externalBin, etc.) |
-| Sensitive-file scan         | `rg` regex over the bundled backend resources     |
 
 
 ## License

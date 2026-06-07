@@ -1,3 +1,5 @@
+import pandas as pd
+
 text_response_prompt = """
 Answer the user question based on your knowledge. Do not simulate a Human/AI interaction in your response.
 Always return an answer, if you don't know say it, but NEVER RETURN AN EMPTY STRING.
@@ -42,6 +44,10 @@ Based on all the web searches conducted, create a comprehensive, well-structured
 
 You will be provided with a user question and you will output your answer.
 
+You MUST provide an answer to the user question: if the user asks about the weather forecast in Paris for this weekend, you need tell them what the weather will be like.
+
+Today's date is {str(pd.Timestamp.now())[:10]}.
+
 CRITICAL: Make sure the answer is written in the same language as the human messages!
 For example, if the user's messages are in English, then MAKE SURE you write your response in English. If the user's messages are in Chinese, then MAKE SURE you write your entire response in Chinese.
 This is critical. The user will only understand the answer if it is written in the same language as their input message.
@@ -60,21 +66,12 @@ Please create a detailed answer to the overall user question that:
 2. Provides a balanced, thorough analysis. Be comprehensive, and include all information that is relevant to the overall user question.
 3. Includes a "Sources" section at the end with all referenced links
 4. Give a definitive answer to the user question. If you don't know, say that you don't know.
+5. Do not mention sources that are not relevant to the user question: for example, if the user question is about the weather in Paris for this weekend, do not mention sources that for example mention the weather in London, or the weather in Paris on a day last year.
 
 Format the answer in clear markdown with proper structure and include source references where appropriate.
 
-<Citation Rules>
-- Assign each unique source a single citation number in your text (don't show the same source twice)
-- End with ### Sources that lists each source with corresponding numbers
-- IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
-- Example format:
-  [1] URL
-  [2] URL
-</Citation Rules>
-
 MAKE ABSOLUTELY SURE TO INCLUDE URLS IN YOUR FINAL ANSWER, IT IS ABSOLUTELY NECESSARY.
 DO NOT MENTION THE PROMPT REQUIREMENTS IN YOUR ANSWER.
-DON'T WRITE THE SOURCES SECTION TWICE.
 """
 
   return system_prompt
