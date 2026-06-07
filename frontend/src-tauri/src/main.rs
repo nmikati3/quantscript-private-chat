@@ -479,11 +479,19 @@ fn spawn_and_wait(
     ))
 }
 
+/// Async wrapper so the long-running spawn-and-poll work runs on a blocking
+/// worker thread instead of Tauri's main (event-loop) thread. A synchronous
+/// command would freeze the webview for the entire backend boot — a blank
+/// window and the macOS beachball — until the sidecar became reachable.
 #[tauri::command]
-fn start_backend_sidecar(
-    app: AppHandle,
-    state: State<BackendState>,
-) -> Result<BackendRuntimeInfo, String> {
+async fn start_backend_sidecar(app: AppHandle) -> Result<BackendRuntimeInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || start_backend_sidecar_blocking(&app))
+        .await
+        .map_err(|e| format!("backend sidecar startup task failed to complete: {e}"))?
+}
+
+fn start_backend_sidecar_blocking(app: &AppHandle) -> Result<BackendRuntimeInfo, String> {
+    let state = app.state::<BackendState>();
     let mut guard = state.process.lock().map_err(|e| e.to_string())?;
     if let Some(existing) = guard.as_mut() {
         if existing
@@ -503,14 +511,14 @@ fn start_backend_sidecar(
 
     let (child, port) = {
         let mut launched: Option<(Child, u16)> = None;
-        if bundled_backend_binary_path(&app).is_some() {
+        if bundled_backend_binary_path(app).is_some() {
             for idx in 0..STARTUP_PORT_ATTEMPTS {
                 let port = random_ephemeral_port()?;
-                let Some(mut bundled_command) = build_bundled_backend_command(&app, port) else {
+                let Some(mut bundled_command) = build_bundled_backend_command(app, port) else {
                     attempts.push(String::from("bundled backend binary disappeared before launch"));
                     break;
                 };
-                configure_backend_command(&app, &mut bundled_command, &sidecar_token)?;
+                configure_backend_command(app, &mut bundled_command, &sidecar_token)?;
                 match spawn_and_wait(bundled_command, port, startup_timeout, &sidecar_token) {
                     Ok(child) => {
                         launched = Some((child, port));
@@ -532,8 +540,8 @@ fn start_backend_sidecar(
             {
                 for idx in 0..STARTUP_PORT_ATTEMPTS {
                     let port = random_ephemeral_port()?;
-                    let mut python_command = build_python_backend_command(&app, port)?;
-                    configure_backend_command(&app, &mut python_command, &sidecar_token)?;
+                    let mut python_command = build_python_backend_command(app, port)?;
+                    configure_backend_command(app, &mut python_command, &sidecar_token)?;
                     match spawn_and_wait(python_command, port, startup_timeout, &sidecar_token) {
                         Ok(child) => {
                             launched = Some((child, port));
