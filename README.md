@@ -1,20 +1,54 @@
-# QuantScript - A private, free and somewhat sustainable alternative to ChatGPT.
+# QuantScript - A zero-config, local, ChatGPT alternative that works on 8GB laptops.
 
-A free, local, private, and open-source alternative to ChatGPT.
+No config needed, no need to choose the right model and quantization, the app automatically scales to your hardware and chooses the best model out of the gemma4 suite, that will work privately and locally on your laptop, starting from 8GB RAM.
 
-Great for day-to-day chats, for brainstorming private business ideas without anybody watching, analyzing sensitive documents, asking for feedback on your resume etc.
+Great for private day-to-day chats, for brainstorming business ideas without anybody watching, analyzing sensitive documents, asking for feedback on your resume etc.
 
 ## Features
 
+- **Zero-config**: download the app and open it, and you're good to go: it will automatically choose the best model for your hardware and will work directly without any actions needed on your end.
 - **Private, local-first**: the app only communicates with the outside world when using web search or deep research. The user has full control on whether to use these features or not. All inference, search, and storage happens on your laptop. **No accounts, no cloud, no telemetry.** The app does not phone home.
-- **Sustainable (-ish)**: the app runs a small, yet powerful, Gemma 4 model (automatically sized to your machine) using your laptop's own power. Therefore, it consumes far less energy than calling bigger models from servers. The main energy cost was gemma's model training.
-- **Works offline**: the app only needs to download the LLM model once at first use but then, works 100% offline.
+- **Works on 8GB RAM**: the app works on laptops with low memory, starting at 8GB RAM for Mac users.
+- **Deep Research - Lite**: the app can run a lighter version of Deep Research even with a lightweight gemma4 model.
 
-### Other features
+## Installation
 
-- **Deep Research - Lite**: the app can run a lighter version of Deep Research even with a lightweight gemma4 4B model.
-- **Web Search**: the app can search the web.
-- **No third-party API keys required.**
+QuantScript runs **fully locally** and supports two deployment modes. Both keep all inference and storage on your own machine.
+
+### Option 1 — Desktop app (macOS only for now)
+
+A one-click native macOS app. No Python or terminal required.
+
+**macOS, Apple Silicon only** (for now):
+
+
+| Chip                        | Download                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Apple Silicon (M1/M2/M3/M4) | [QuantScript 0.1.0 (aarch64)](https://github.com/nmikati3/quantscript-private-chat/releases/download/v0.1.0/QuantScript_0.1.0_aarch64.dmg) |
+
+
+### Option 2 — Browser mode (any OS)
+
+Run the local backend yourself and open the web UI in your browser. This works on **any OS that can run Python 3.14+** (macOS, Linux, Windows), including Intel Macs and machines without Apple Silicon.
+
+```bash
+# 1. Backend (serves the local API on 127.0.0.1:8000)
+cd backend
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.lock
+uvicorn app.api.main:app --host 127.0.0.1 --port 8000
+
+# 2. Frontend (in a second terminal)
+cd frontend
+npm install
+npm run build && npm run preview                     # or `npm run dev` for hot-reload
+```
+
+**Windows users**: the auto-tiering system that scales the model based on your hardware is not configured for Windows yet. In browser mode on Windows, the app will default to the lightest model available. Users can override the model choice using the .env file in the backend and choose a bigger model if needed.
+
+Then open the URL printed by Vite (e.g. `http://localhost:4173`). The first launch downloads the model once; after that it works offline.
+
+> **Security note:** in browser mode the local API has **no sidecar token** and is reachable by any process running under your user account. This is the intended trade-off for a single-user machine. See [SECURITY.md](SECURITY.md) › "Security model & trust boundaries".
 
 ## Links/Contact
 
@@ -23,7 +57,7 @@ Email: [info@quantscript.io](mailto:info@quantscript.io)
 
 ## Hardware requirements
 
-QuantScript runs the model entirely on your own machine through `llama-cpp-python`, so requirements scale with the model. The desktop app **auto-detects your unified memory at startup** and picks the largest Gemma 4 variant that fits, so it runs well on everything from an 8 GB MacBook Air to a 64 GB Studio without any configuration:
+QuantScript runs the model entirely on your own machine through `llama-cpp-python`, so requirements scale with the model. The desktop app **auto-detects your unified memory at startup** and picks the largest Gemma 4 variant that fits, so it runs well on everything starting from an 8 GB MacBook without any configuration:
 
 
 | Detected unified memory | Model (auto-selected)               | Context window |
@@ -70,43 +104,6 @@ quantscript-private-chat/
 ├── NOTICE                       Third-party attribution
 └── LICENSE                      Apache License 2.0
 ```
-
-## Install (end users)
-
-QuantScript runs **fully locally** and supports two deployment modes. Both keep all inference and storage on your own machine.
-
-### Option 1 — Desktop app (macOS only)
-
-A one-click native macOS app. No Python or terminal required.
-
-**macOS, Apple Silicon only** (for now):
-
-
-| Chip                        | Download                                                                                                                                   |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Apple Silicon (M1/M2/M3/M4) | [QuantScript 0.1.0 (aarch64)](https://github.com/nmikati3/quantscript-private-chat/releases/download/v0.1.0/QuantScript_0.1.0_aarch64.dmg) |
-
-
-### Option 2 — Browser mode (any OS)
-
-Run the local backend yourself and open the web UI in your browser. This works on **any OS that can run Python 3.14+** (macOS, Linux, Windows), including Intel Macs and machines without Apple Silicon.
-
-```bash
-# 1. Backend (serves the local API on 127.0.0.1:8000)
-cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.lock
-uvicorn app.api.main:app --host 127.0.0.1 --port 8000
-
-# 2. Frontend (in a second terminal)
-cd frontend
-npm install
-npm run build && npm run preview                     # or `npm run dev` for hot-reload
-```
-
-Then open the URL printed by Vite (e.g. `http://localhost:4173`). The first launch downloads the model once; after that it works offline.
-
-> **Security note:** in browser mode the local API has **no sidecar token** and is reachable by any process running under your user account. This is the intended trade-off for a single-user machine. See [SECURITY.md](SECURITY.md) › "Security model & trust boundaries".
 
 ## Local development
 
@@ -162,8 +159,6 @@ Tauri wraps the React frontend in a native macOS webview. On launch:
 | Hugging Face cache | `~/Library/Application Support/com.quantscript.desktop/cache/`                 | No                   |
 
 
-
-
 The only outbound network traffic is:
 
 - Hugging Face Hub, on first launch (to download the model).
@@ -171,8 +166,6 @@ The only outbound network traffic is:
 - Article URLs returned by those searches.
 
 > **What leaves your machine when you use Search / Deep Research:** these features are **opt-in per message and off by default**. When you enable them, a search query **derived from your message (and recent conversation context)** is sent to a third-party search engine, and the resulting article URLs are fetched. In other words, "local and private" means *no conversation content leaves your machine by default*, but enabling Search/Deep Research necessarily transmits query content externally so the model can read the web. Leave these toggles off to stay fully offline (after the one-time model download).
-
-
 
 ## License
 

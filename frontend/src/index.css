@@ -25,7 +25,7 @@ body {
   margin: 0;
   display: flex;
   justify-content: center; /* horizontal center */
-  align-items: flex-end;   /* align to bottom */
+  align-items: center;     /* vertical center */
   box-sizing: border-box;
   background-color: #fcfaf9;
   -webkit-tap-highlight-color: transparent;
@@ -34,7 +34,7 @@ body {
 #root {
   display: flex;
   justify-content: center;
-  align-items: flex-end;
+  align-items: center;
   width: 100%;
   min-height: 100vh;
   -webkit-tap-highlight-color: transparent;

@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_No unreleased changes._
+*No unreleased changes.*
 
-## [0.1.0] - 2026-05-31
+## [0.1.0] - 2026-06-08
 
 ### Added
 
-- Initial release: local-first, private ChatGPT alternative.
+- Initial release: local-first, private chat app.
 
 ### Changed
 

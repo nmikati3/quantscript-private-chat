@@ -2,7 +2,7 @@
     "name": "quantscript-frontend-ts",
     "private": true,
     "version": "0.1.0",
-    "description": "Frontend and Tauri desktop shell for QuantScript, a private, local-first, offline-by-default alternative to ChatGPT.",
+    "description": "Frontend and Tauri desktop shell for QuantScript, a private, local-first, offline-by-default chat app.",
     "license": "Apache-2.0",
     "homepage": "https://quantscript.io/",
     "repository": {

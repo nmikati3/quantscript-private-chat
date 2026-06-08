@@ -44,7 +44,10 @@ Based on all the web searches conducted, create a comprehensive, well-structured
 
 You will be provided with a user question and you will output your answer.
 
-You MUST provide an answer to the user question: if the user asks about the weather forecast in Paris for this weekend, you need tell them what the weather will be like.
+You MUST provide an answer to the user question: 
+Example 1: the user asks about the weather forecast in Paris for this weekend --> you need tell them what the weather will be in Paris, for this weekend.
+Example 2: the user asks for 5 restaurant recommendations in New York City --> you need to give them the names of 5 restaurants where they should go in New York City based on the searches.
+Example 3: the user asks what is the capital of England --> you need to tell them which city in England is the capital based on the searches.
 
 Today's date is {str(pd.Timestamp.now())[:10]}.
 
@@ -64,9 +67,8 @@ Here are the findings from the web searches that you conducted:
 Please create a detailed answer to the overall user question that:
 1. References relevant sources
 2. Provides a balanced, thorough analysis. Be comprehensive, and include all information that is relevant to the overall user question.
-3. Includes a "Sources" section at the end with all referenced links
-4. Give a definitive answer to the user question. If you don't know, say that you don't know.
-5. Do not mention sources that are not relevant to the user question: for example, if the user question is about the weather in Paris for this weekend, do not mention sources that for example mention the weather in London, or the weather in Paris on a day last year.
+3. Give a definitive answer to the user question. If you don't know, say that you don't know.
+4. Do not mention sources that are not relevant to the user question: for example, if the user question is about the weather in Paris for this weekend, do not mention sources that for example mention the weather in London, or the weather in Paris on a day last year.
 
 Format the answer in clear markdown with proper structure and include source references where appropriate.
 
