@@ -1,4 +1,4 @@
-# QuantScript - A zero-config, local, ChatGPT alternative that works on 8GB laptops.
+# QuantScript - A zero-config, local, ChatGPT alternative that works even on 8GB laptops.
 
 No config needed, no need to choose the right model and quantization, the app automatically scales to your hardware and chooses the best model out of the gemma4 suite, that will work privately and locally on your laptop, starting from 8GB RAM.
 
