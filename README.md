@@ -4,7 +4,9 @@ No config needed, no need to choose the right model and quantization, the app au
 
 Great for private day-to-day chats, for brainstorming business ideas without anybody watching, analyzing sensitive documents, asking for feedback on your resume etc.
 
-> ▶️ [Watch the demo](docs/videos/video_demo.mp4)
+
+https://github.com/user-attachments/assets/4da50680-bcb2-4de5-bf5b-5ff9e6aaf701
+
 
 ## Features
 
