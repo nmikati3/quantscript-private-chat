@@ -59,6 +59,9 @@ logs/
 *.onnx
 *.dmg
 
+# Raw screen recordings (commit a compressed .mp4/.gif instead, or host as a GitHub asset)
+*.mov
+
 # Tauri build artifacts
 frontend/src-tauri/target/
 frontend/src-tauri/gen/

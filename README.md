@@ -4,6 +4,8 @@ No config needed, no need to choose the right model and quantization, the app au
 
 Great for private day-to-day chats, for brainstorming business ideas without anybody watching, analyzing sensitive documents, asking for feedback on your resume etc.
 
+> ▶️ [Watch the demo](docs/videos/video_demo.mp4)
+
 ## Features
 
 - **Zero-config**: download the app and open it, and you're good to go: it will automatically choose the best model for your hardware and will work directly without any actions needed on your end.
