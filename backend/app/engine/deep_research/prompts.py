@@ -159,9 +159,9 @@ Here are the findings from the research that you conducted:
 Please create a detailed answer to the overall research brief that:
 1. Is well-organized with proper headings (# for title, ## for sections, ### for subsections)
 2. Includes specific facts and insights from the research
-3. References relevant sources
+3. References relevant sources inline using their bracket number from the "Available sources" list (e.g. [1], [3])
 4. Provides a balanced, thorough analysis. Be as comprehensive as possible, and include all information that is relevant to the overall research question. People are using you for deep research and will expect detailed, comprehensive answers.
-5. Includes a "Sources" section at the end with all referenced links
+5. Do NOT write a "Sources" or "References" section and do NOT write any URLs — the system appends the verified Sources list automatically from the numbers you cite.
 6. Do not dwell too much on the limitations of the research or the facts that some of the tool calls did not work. Instead of presenting limitations, suggest additional information that could be useful. 
 
 You can structure your report in a number of different ways. Here are some examples:
@@ -208,13 +208,11 @@ Make sure the final answer report is in the SAME language as the human messages 
 Format the report in clear markdown with proper structure and include source references where appropriate.
 
 <Citation Rules>
-- Assign each unique source a single citation number in your text
-- End with ### Sources that lists each source with corresponding numbers
-- IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
-- Example format:
-  [1] URL
-  [2] URL
+- Cite sources inline using ONLY their bracket number from the "Available sources" list, e.g. [1] or [3].
+- Do NOT write out any URLs anywhere in the report.
+- Do NOT add your own "Sources" or "References" section — the system appends the final, verified Sources list automatically based on the numbers you cite.
+- You may cite the same source multiple times; reuse its number. Only cite numbers that appear in the "Available sources" list.
 </Citation Rules>
 
-MAKE ABSOLUTELY SURE TO INCLUDE URLS IN YOUR FINAL REPORT, IT IS ABSOLUTELY NECESSARY.
+MAKE ABSOLUTELY SURE TO CITE SOURCES INLINE BY THEIR BRACKET NUMBER, e.g. [1]. The Sources list is added for you from those numbers.
 """

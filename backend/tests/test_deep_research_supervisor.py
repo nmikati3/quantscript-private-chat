@@ -22,7 +22,7 @@ def test_supervisor_retries_and_trims_on_token_limit():
 
     seen_lengths = []
 
-    def fake_structured(_model, messages):
+    def fake_structured(_model, messages, **kwargs):
         seen_lengths.append(len(messages))
         # Fail until the prompt has been trimmed at least once.
         if len(seen_lengths) < 3:
@@ -39,7 +39,7 @@ def test_supervisor_retries_and_trims_on_token_limit():
 
 
 def test_supervisor_reraises_non_token_errors():
-    def fake_structured(_model, messages):
+    def fake_structured(_model, messages, **kwargs):
         raise ValueError("some unrelated parsing failure")
 
     with patch.object(dr, "get_structured_llm_response", side_effect=fake_structured):
@@ -54,7 +54,7 @@ def test_supervisor_reraises_non_token_errors():
 def test_supervisor_gives_up_when_history_empty_but_still_too_large():
     # Token errors persist even after the whole history is dropped: the call must
     # eventually surface the error rather than loop forever.
-    def fake_structured(_model, messages):
+    def fake_structured(_model, messages, **kwargs):
         raise ValueError("context length exceeded")
 
     with patch.object(dr, "get_structured_llm_response", side_effect=fake_structured):

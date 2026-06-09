@@ -4,9 +4,7 @@ No config needed, no need to choose the right model and quantization, the app au
 
 Great for private day-to-day chats, for brainstorming business ideas without anybody watching, analyzing sensitive documents, asking for feedback on your resume etc.
 
-
-https://github.com/user-attachments/assets/4da50680-bcb2-4de5-bf5b-5ff9e6aaf701
-
+[https://github.com/user-attachments/assets/4da50680-bcb2-4de5-bf5b-5ff9e6aaf701](https://github.com/user-attachments/assets/4da50680-bcb2-4de5-bf5b-5ff9e6aaf701)
 
 ## Features
 
@@ -61,15 +59,19 @@ Email: [info@quantscript.io](mailto:info@quantscript.io)
 
 ## Hardware requirements
 
-QuantScript runs the model entirely on your own machine through `llama-cpp-python`, so requirements scale with the model. The desktop app **auto-detects your unified memory at startup** and picks the largest Gemma 4 variant that fits, so it runs well on everything starting from an 8 GB MacBook without any configuration:
+QuantScript runs the model entirely on your own machine through `llama-cpp-python`, so requirements scale with the model. The desktop app **auto-detects your unified memory at startup** and picks the largest Gemma 4 variant that fits, so it runs on everything starting from an 8 GB MacBook without any configuration:
 
 
-| Detected unified memory | Model (auto-selected)               | Context window |
-| ----------------------- | ----------------------------------- | -------------- |
-| < 16 GB                 | Gemma 4 **E2B**, `Q3_K_M` (~2.4 GB) | 8K             |
-| 16 GB – 24 GB           | Gemma 4 **E4B**, `Q4_K_M` (~5.0 GB) | 16K            |
-| ≥ 24 GB                 | Gemma 4 **E4B**, `Q8_0` (~8.2 GB)   | 32K            |
+| Detected unified memory | Model (auto-selected)                       | Context window |
+| ----------------------- | ------------------------------------------- | -------------- |
+| < 16 GB                 | Gemma 4 **E2B** QAT, `UD-Q4_K_XL` (~2.6 GB) | 8K             |
+| 16 GB – 24 GB           | Gemma 4 **E4B** QAT, `UD-Q4_K_XL` (~4.2 GB) | 16K            |
+| ≥ 24 GB                 | Gemma 4 **E4B**, `Q8_0` (~8.2 GB)           | 32K            |
 
+
+If you see the chat returning inconsistent answers or being very slow, try closing other apps as it usually helps. **On an 8 GB machine this matters a lot:** the model, macOS, and the app's own webview together use most of your RAM, so quit other memory-hungry apps (browsers, IDEs, Docker, etc.) before a session — especially before running Deep Research.
+
+Deep Research is the most memory-intensive feature. On machines under 16 GB the app automatically switches to fewer planning rounds, searches, articles, and a smaller token budget so it can finish on modest hardware. If it still errors out on an 8 GB machine, close other apps and retry, or dial it down further via the env vars below (`MAX_RESEARCHER_ITERATIONS`, `MAX_RESEARCHER_SEARCHES`, `RESEARCH_ARTICLES_PER_SEARCH`, `MAX_TOKENS_COMPRESSION`, `MAX_TOKENS_FINAL_REPORT`).
 
 Vision/attachment support works on every tier. More memory means a higher-quality quant and a larger context window; lower tiers stay responsive on modest hardware.
 
@@ -177,6 +179,6 @@ Apache License 2.0 — see `LICENSE` for terms.
 
 ### Model & third-party licenses
 
-QuantScript automatically downloads a GGUF build of Google's **Gemma 4** from HuggingFace on first launch — `unsloth/gemma-4-E4B-it-GGUF` or, on machines with less than 16 GB of memory, the smaller `unsloth/gemma-4-E2B-it-GGUF` (see [Hardware requirements](#hardware-requirements)). Gemma 4 is released under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0); the same permissive license as QuantScript itself. (Note: this differs from earlier Gemma generations, which used Google's custom *Gemma Terms of Use*.)
+QuantScript automatically downloads a GGUF build of Google's **Gemma 4** from HuggingFace on first launch, depending on your hardware (see [Hardware requirements](#hardware-requirements)): the QAT (quantization-aware training) `unsloth/gemma-4-E2B-it-qat-GGUF` or `unsloth/gemma-4-E4B-it-qat-GGUF` on machines under 24 GB, or `unsloth/gemma-4-E4B-it-GGUF` (`Q8_0`) on machines with 24 GB or more. Gemma 4 is released under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0); the same permissive license as QuantScript itself. (Note: this differs from earlier Gemma generations, which used Google's custom *Gemma Terms of Use*.)
 
 As with any Apache-2.0 component, "Gemma" remains a Google trademark: you may say an app is "powered by Gemma," but the license grants no trademark rights and does not imply Google endorsement. See [NOTICE](NOTICE) for the full list of bundled third-party components and their licenses.

@@ -25,6 +25,10 @@ LLAMA_REPO_ID = _MODEL_CONFIG["repo_id"]
 LLAMA_FILENAME = _MODEL_CONFIG["filename"]
 N_CTX = _MODEL_CONFIG["n_ctx"]
 LLAMA_MMPROJ_FILENAME = _MODEL_CONFIG["mmproj_filename"]
+# The selected hardware tier, so memory-heavy paths (deep research) can scale
+# their workload to the machine instead of running the full workflow on an 8 GB
+# laptop and crashing mid-run.
+MODEL_TIER = _MODEL_CONFIG["tier"]
 
 # Chat-template modes. The model speaks a different template per mode, and the
 # template is fixed at construction time, so changing mode means rebuilding the
@@ -438,28 +442,33 @@ def _parse_llm_structured_payload(raw: str):
   raise ValueError("Could not parse structured LLM response as valid JSON")
 
 
-def get_structured_llm_response(response_format, messages):
+def get_structured_llm_response(response_format, messages, temperature=None):
 
-  response = CLIENT_LLAMA.create_chat_completion(
-      messages=messages,
-      response_format={
+  kwargs = {
+      "messages": messages,
+      "response_format": {
           "type": "json_object",
           "schema": response_format.model_json_schema(),
       },
-      max_tokens=MAX_TOKENS
-  )["choices"][0]["message"]["content"]
+      "max_tokens": MAX_TOKENS,
+  }
+  if temperature is not None:
+    kwargs["temperature"] = temperature
+
+  response = CLIENT_LLAMA.create_chat_completion(**kwargs)["choices"][0]["message"]["content"]
 
   payload = _parse_llm_structured_payload(response)
   return response_format.model_validate(payload)
 
 
-async def get_llm_response_with_tools(messages, tools=None, max_tokens=None):
+async def get_llm_response_with_tools(messages, tools=None, max_tokens=None, temperature=None):
   """Get a (plain-text) LLM response, with optional tool calling support.
 
   Args:
     messages: List of message dicts with 'role' and 'content'
     tools: Optional list of tool definitions
     max_tokens: Maximum tokens (optional)
+    temperature: Sampling temperature (optional; used by deep research on lower-precision models)
 
   Returns:
     Dict with 'content', 'role', and optionally 'tool_calls'
@@ -471,6 +480,9 @@ async def get_llm_response_with_tools(messages, tools=None, max_tokens=None):
   
   if max_tokens:
     kwargs["max_tokens"] = max_tokens
+
+  if temperature is not None:
+    kwargs["temperature"] = temperature
     
   if tools:
     kwargs["tools"] = tools

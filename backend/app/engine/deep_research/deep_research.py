@@ -8,13 +8,19 @@ import logging
 from typing import Dict, List, Any
 from pydantic import BaseModel, model_validator
 from app.engine.llm.web_search import web_search_and_fetch_articles_async
-from app.engine.llm.inference import get_structured_llm_response, get_llm_response_with_tools, N_CTX
+from app.engine.llm.inference import (
+    get_structured_llm_response,
+    get_llm_response_with_tools,
+    N_CTX,
+    MODEL_TIER,
+)
 from app.engine.deep_research.utils import (
     get_today_str,
     get_buffer_string,
     is_token_limit_exceeded,
     truncate_preserving_sources,
-    format_sources_block,
+    build_source_catalog,
+    finalize_report_sources,
 )
 from app.engine.deep_research.prompts import (
     compress_research_simple_human_message,
@@ -27,17 +33,59 @@ from app.engine.deep_research.prompts import (
 
 logger = logging.getLogger(__name__)
 
-MAX_TOKENS_COMPRESSION = int(os.environ.get("MAX_TOKENS_COMPRESSION", "8192"))
-MAX_TOKENS_FINAL_REPORT = int(os.environ.get("MAX_TOKENS_FINAL_REPORT", "8192"))
-MAX_CONCURRENT_RESEARCH_UNITS = int(os.environ.get("MAX_CONCURRENT_RESEARCH_UNITS", "5"))
+# Deep research fires ~25+ model inferences for a single run on the full
+# profile. On a memory-constrained tier (8 GB Macs) that volume of work plus the
+# large per-call contexts pushes the machine into swap and a decode eventually
+# crashes mid-run. So on the low-memory tier we run a lighter profile: fewer
+# planning rounds, fewer searches, fewer articles and smaller token budgets.
+#
+# Precedence: an explicit environment variable always wins; otherwise we pick
+# the lite default on a low-memory machine and the full default elsewhere.
+_LITE = bool(getattr(MODEL_TIER, "low_memory", False))
+
+
+def _tiered_limit(env_var: str, full: int, lite: int) -> int:
+    raw = os.environ.get(env_var, "").strip()
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            logger.warning("Ignoring invalid %s=%r", env_var, raw)
+    return lite if _LITE else full
+
+
+MAX_TOKENS_COMPRESSION = _tiered_limit("MAX_TOKENS_COMPRESSION", 8192, 4096)
+MAX_TOKENS_FINAL_REPORT = _tiered_limit("MAX_TOKENS_FINAL_REPORT", 8192, 4096)
 # How many supervisor planning rounds (topics) the workflow runs.
-MAX_RESEARCHER_ITERATIONS = int(os.environ.get("MAX_RESEARCHER_ITERATIONS", "5"))
+MAX_RESEARCHER_ITERATIONS = _tiered_limit("MAX_RESEARCHER_ITERATIONS", 5, 2)
 # How many web searches a single researcher may run for one topic.
-MAX_RESEARCHER_SEARCHES = int(os.environ.get("MAX_RESEARCHER_SEARCHES", "3"))
+MAX_RESEARCHER_SEARCHES = _tiered_limit("MAX_RESEARCHER_SEARCHES", 3, 2)
+# How many articles each web search fetches into the model's context.
+RESEARCH_ARTICLES_PER_SEARCH = _tiered_limit("RESEARCH_ARTICLES_PER_SEARCH", 3, 3)
 # N_CTX is imported from inference so deep research uses the same memory-tiered
 # context window (env var N_CTX still overrides it there).
 # How many times to re-sample a structured decision when its JSON can't be parsed/validated.
 MAX_SUPERVISOR_PARSE_RETRIES = int(os.environ.get("MAX_SUPERVISOR_PARSE_RETRIES", "2"))
+# Low sampling temperature for every deep-research model call. Lower precision
+# (4-bit QAT) models follow the prompt's citation/language rules far more
+# reliably when sampling is near-greedy, which cuts hallucinated URLs and
+# wrong-language drift.
+DEEP_RESEARCH_TEMPERATURE = float(os.environ.get("DEEP_RESEARCH_TEMPERATURE", "0.3"))
+# Maximum number of sources offered to (and citable by) the final report. Bounds
+# the catalog the model picks from and the rendered Sources list, so a run with
+# many results stays readable and easy for a small model to cite correctly.
+MAX_REPORT_SOURCES = int(os.environ.get("MAX_REPORT_SOURCES", "30"))
+
+logger.info(
+    "Deep research profile: %s (iterations=%d, searches=%d, articles/search=%d, "
+    "compression_tokens=%d, report_tokens=%d)",
+    "lite (low-memory tier)" if _LITE else "full",
+    MAX_RESEARCHER_ITERATIONS,
+    MAX_RESEARCHER_SEARCHES,
+    RESEARCH_ARTICLES_PER_SEARCH,
+    MAX_TOKENS_COMPRESSION,
+    MAX_TOKENS_FINAL_REPORT,
+)
 
 # A healthy compression preserves the gathered findings and their sources. Weaker
 # models sometimes return only a few words of query metadata or the error string
@@ -84,6 +132,7 @@ async def write_research_brief(
     response = get_structured_llm_response(
         TransformMessagesIntoResearchTopic,
         [{"role": "user", "content": prompt}],
+        temperature=DEEP_RESEARCH_TEMPERATURE,
     )
 
     return response.research_question
@@ -166,7 +215,7 @@ async def supervisor(supervisor_messages: List[Dict[str, Any]], research_brief: 
         messages = history + [research_message]
         logger.debug("Supervisor messages: %d items", len(messages))
         try:
-            decision = get_structured_llm_response(SupervisorDecision, messages)
+            decision = get_structured_llm_response(SupervisorDecision, messages, temperature=DEEP_RESEARCH_TEMPERATURE)
             logger.debug("Supervisor decision: is_complete=%s, reflection=%s...", decision.is_complete, decision.reflection[:100])
             return decision
         except Exception as e:
@@ -249,7 +298,7 @@ def researcher_decide(research_topic: str, findings_so_far: str) -> ResearcherDe
     parse_retries = 0
     while True:
         try:
-            return get_structured_llm_response(ResearcherDecision, messages)
+            return get_structured_llm_response(ResearcherDecision, messages, temperature=DEEP_RESEARCH_TEMPERATURE)
         except Exception as e:
             if not is_token_limit_exceeded(e) and parse_retries < MAX_SUPERVISOR_PARSE_RETRIES:
                 parse_retries += 1
@@ -282,6 +331,7 @@ async def compress_research(
     # Gemma ignores system-role messages, so fold the compression instructions
     # and the findings into a single user turn.
     findings = transcript
+
     synthesis_attempts = 0
     max_attempts = 3
 
@@ -295,6 +345,7 @@ async def compress_research(
             response = await get_llm_response_with_tools(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=MAX_TOKENS_COMPRESSION,
+                temperature=DEEP_RESEARCH_TEMPERATURE,
             )
 
             compressed = response.get("content", "")
@@ -379,7 +430,9 @@ async def researcher_workflow(research_topic: str, progress_callback=None) -> Di
                 logger.error(f"Error calling progress_callback researcher_workflow: {e}")
 
         try:
-            articles = await web_search_and_fetch_articles_async(query)
+            articles = await web_search_and_fetch_articles_async(
+                query, n=RESEARCH_ARTICLES_PER_SEARCH
+            )
         except Exception as e:
             logger.error(f"web_search failed for query '{query}': {e}", exc_info=True)
             transcript_parts.append(f"## Search: {query}\n(search failed)")
@@ -435,83 +488,80 @@ async def final_report_generation(
     Returns:
         Dict with 'final_report' and 'messages'
     """
-    findings = "\n".join(notes)
+    notes_text = "\n".join(notes)
 
-    # Append the authoritative source list captured from the search results so
-    # the report can always cite real URLs, even if the per-round synthesis
-    # dropped them. Built from structured records rather than regex.
-    sources_block = format_sources_block(sources)
-    if sources_block:
-        findings = f"{findings}\n\n{sources_block}"
-    
+    # The model cites sources by number from this catalog and is told not to
+    # write URLs; finalize_report_sources() then rebuilds an authoritative,
+    # renumbered Sources list from the real fetched records. Cap the catalog so a
+    # run with many results stays readable and easy for a small model to cite.
+    candidates = (sources or [])[:MAX_REPORT_SOURCES]
+    catalog = build_source_catalog(candidates)
+
     # Attempt report generation with token limit retry logic
     max_retries = 3
     current_retry = 0
-    findings_token_limit = None
-    
+    notes_token_limit = None
+
     while current_retry <= max_retries:
         try:
+            findings = f"{notes_text}\n\n{catalog}" if catalog else notes_text
             final_report_prompt = final_report_generation_prompt.format(
                 research_brief=research_brief,
                 messages=get_buffer_string(messages),
                 findings=findings,
                 date=get_today_str(),
             )
-            
+
             if progress_callback:
                 try:
                     progress_callback("✍️ Writing final report...")
                 except Exception as e:
                     logger.error(f"Error calling progress_callback final_report_generation: {e}")
                     pass
-            
+
             response = await get_llm_response_with_tools(
                 messages=[{"role": "user", "content": final_report_prompt}],
-                max_tokens=MAX_TOKENS_FINAL_REPORT
+                max_tokens=MAX_TOKENS_FINAL_REPORT,
+                temperature=DEEP_RESEARCH_TEMPERATURE,
             )
-            
-            final_report = response.get("content", "")
+
+            # Replace the model's citations (often mangled on low-bit models) and
+            # any self-written Sources section with an authoritative, renumbered
+            # list built from the real fetched URLs.
+            final_report = finalize_report_sources(response.get("content", ""), candidates)
             if progress_callback:
                 try:
                     progress_callback(f"📝 Report written: {len(final_report)} characters")
                 except Exception as e:
                     logger.error(f"Error calling progress_callback final_report_generation: {e}")
                     pass
-            
+
             return {
                 "final_report": final_report,
                 "messages": [response]
             }
-            
+
         except Exception as e:
             logger.error(f"Error generating final report: {e}")
             if is_token_limit_exceeded(e):
                 current_retry += 1
-                
+
                 if current_retry == 1:
-                    model_token_limit = 8192
-                    if not model_token_limit:
-                        return {
-                            "final_report": "Error generating final report: Token limit exceeded and the model's maximum context length could not be determined.",
-                            "messages": [{"role": "assistant", "content": "Report generation failed due to token limits"}]
-                        }
-                    findings_token_limit = model_token_limit * 4
+                    notes_token_limit = 8192 * 4
                 else:
-                    findings_token_limit = int(findings_token_limit * 0.9)
-                
-                # Preserve the sources when trimming so the report can still cite
-                # URLs, which the prompt explicitly requires. Pass the structured
-                # records so the footer is authoritative rather than regex-derived.
-                findings = truncate_preserving_sources(
-                    findings, findings_token_limit, sources=sources
-                )
+                    notes_token_limit = int(notes_token_limit * 0.9)
+
+                # Shrink only the notes; the (small) source catalog is preserved
+                # whole so the cited numbers still resolve. No source footer is
+                # appended here — the catalog already carries the citable sources.
+                notes_text = truncate_preserving_sources(notes_text, notes_token_limit)
                 continue
             else:
                 return {
                     "final_report": "Error generating final report. Please try again.",
                     "messages": [{"role": "assistant", "content": "Report generation failed due to an error"}]
                 }
-    
+
     return {
         "final_report": "Error generating final report: Maximum retries exceeded",
         "messages": [{"role": "assistant", "content": "Report generation failed after maximum retries"}]

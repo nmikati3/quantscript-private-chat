@@ -1,9 +1,108 @@
 """Utility functions for deep research without LangChain dependencies."""
 
+import re
 import pandas as pd
 from typing import List, Dict, Any, Optional
 
 _TRUNCATION_MARKER = "\n\n[...truncated for length]\n\n"
+
+# A bracketed integer like [3]. Used both to find the candidate numbers a report
+# cites and to rewrite them. Year-like numbers ([2024]) are filtered out by the
+# valid-range check, not by the regex.
+_CITATION_RE = re.compile(r"\[(\d+)\]")
+
+# A trailing "Sources"/"References" heading (markdown "#" heading or bold) and
+# everything after it. Low-precision models like to invent their own source list
+# with mangled URLs; we strip it and append an authoritative one instead.
+_MODEL_SOURCES_SECTION_RE = re.compile(
+    r"\n\s*(?:#{1,6}\s*|\*\*\s*)(?:sources|references)\b.*\Z",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _candidate_label(candidate: Any) -> str:
+    """Render a single source record as a ``"Title — url"`` (or bare url) label."""
+    if isinstance(candidate, str):
+        return candidate.strip()
+    if isinstance(candidate, dict):
+        url = str(candidate.get("url", "")).strip()
+        title = str(candidate.get("title", "")).strip()
+        return f"{title} — {url}" if title and url else (title or url)
+    return ""
+
+
+def build_source_catalog(candidates: Optional[List[Any]]) -> str:
+    """Render the numbered catalog of sources the report may cite by number.
+
+    Distinct from ``format_sources_block``: this is fed to the model as the menu
+    of citable sources (it cites by number only), whereas the final Sources list
+    in the report is built deterministically by ``finalize_report_sources``.
+    """
+    if not candidates:
+        return ""
+    lines = [f"[{i}] {_candidate_label(c)}" for i, c in enumerate(candidates, 1) if _candidate_label(c)]
+    if not lines:
+        return ""
+    header = (
+        "### Available sources (cite inline by number only, e.g. [1]; "
+        "do NOT write URLs)\n"
+    )
+    return header + "\n".join(lines)
+
+
+def finalize_report_sources(report: str, candidates: Optional[List[Any]]) -> str:
+    """Replace model-written citations/sources with an authoritative, renumbered list.
+
+    The model is asked to cite sources inline by their bracket number from the
+    ``build_source_catalog`` list and NOT to write URLs or a Sources section.
+    This:
+
+      1. strips any Sources/References section the model wrote anyway,
+      2. collects the in-range citation numbers it used (in first-seen order),
+      3. renumbers them sequentially (e.g. [3],[7] -> [1],[2]) in the body,
+      4. appends an authoritative ``### Sources`` list built from the structured
+         records, so every link is real regardless of model precision.
+
+    Out-of-range markers (e.g. a ``[2024]`` year, or a hallucinated number larger
+    than the catalog) are left untouched. When the model cited nothing usable,
+    the (already-capped) candidate list is appended as-is so the report still
+    carries its sources.
+    """
+    if not report:
+        return report
+    if not candidates:
+        return report.rstrip()
+
+    body = _MODEL_SOURCES_SECTION_RE.sub("", report).rstrip()
+    max_valid = len(candidates)
+
+    cited_in_order: List[int] = []
+    seen = set()
+    for match in _CITATION_RE.finditer(body):
+        n = int(match.group(1))
+        if 1 <= n <= max_valid and n not in seen:
+            seen.add(n)
+            cited_in_order.append(n)
+
+    if cited_in_order:
+        remap = {old: new for new, old in enumerate(cited_in_order, 1)}
+
+        def _rewrite(match: "re.Match") -> str:
+            n = int(match.group(1))
+            if n in remap:
+                return f"[{remap[n]}]"
+            return match.group(0)  # leave years / out-of-range markers alone
+
+        body = _CITATION_RE.sub(_rewrite, body)
+        rendered = cited_in_order
+    else:
+        # Model produced no usable citations; fall back to listing the candidates
+        # (the caller has already capped this list to a sane maximum).
+        remap = {i: i for i in range(1, max_valid + 1)}
+        rendered = list(range(1, max_valid + 1))
+
+    source_lines = [f"[{remap[old]}] {_candidate_label(candidates[old - 1])}" for old in rendered]
+    return f"{body}\n\n### Sources\n" + "\n".join(source_lines)
 
 
 def sources_to_entries(sources: Optional[List[Any]]) -> List[str]:

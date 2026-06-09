@@ -32,7 +32,8 @@ _BLOCKED_IP_NETWORKS = [
 _MAX_FETCH_BYTES = 1_500_000  # 1.5 MB hard cap
 _MAX_REDIRECTS = 3
 _ALLOWED_PORTS = {80, 443, None}
-_MAX_ARTICLE_CHARS = 2_500  # ~625 tokens per article; 5 articles ≈ 3k tokens total
+_MAX_ARTICLE_CHARS = 2_500  # ~625 tokens per article
+NB_ARTICLES = 5
 
 _OFFICIAL_DOMAIN_PATTERNS_FILE = Path(__file__).resolve().parent / "official_domain_patterns.txt"
 
@@ -237,13 +238,13 @@ def _rank_results(results: list) -> list:
     return sorted(results, key=lambda r: _official_score(r.get("url", "")), reverse=True)
 
 
-def web_search(query, n=5):
+def web_search(query, n=NB_ARTICLES):
     """Sync variant — safe to call only when no event loop is running (e.g. regular chat search)."""
     result = asyncio.run(_webserp_search(query=query, max_results=n))
     return result["results"]
 
 
-async def web_search_async(query, n=5):
+async def web_search_async(query, n=NB_ARTICLES):
     """Async variant — use inside an already-running event loop (e.g. deep research)."""
     result = await _webserp_search(query=query, max_results=n)
     return result["results"]
@@ -288,13 +289,13 @@ def _build_articles(results):
     ]
 
 
-def web_search_and_fetch_articles(query, n=5):
+def web_search_and_fetch_articles(query, n=NB_ARTICLES):
     """Sync variant for the regular chat search path."""
     results = web_search(query, n)
     return _build_articles(results)
 
 
-async def web_search_and_fetch_articles_async(query, n=5):
+async def web_search_and_fetch_articles_async(query, n=NB_ARTICLES):
     """Async variant for deep research (avoids nested asyncio.run)."""
     results = await web_search_async(query, n)
     loop = asyncio.get_running_loop()

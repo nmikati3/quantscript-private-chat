@@ -52,9 +52,9 @@ def test_select_model_tier_unknown_defaults_to_low():
 
 
 def test_tier_model_choices():
-    # The intended plan: E2B for small, E4B (Q6 then Q8) for larger.
-    assert "E2B" in TIER_LOW.filename and TIER_LOW.n_ctx == 8192
-    assert "E4B" in TIER_MID.filename and "Q4_K_M" in TIER_MID.filename and TIER_MID.n_ctx == 16384
+    # E2B/E4B QAT for the small & mid tiers; near-lossless E4B Q8_0 for high.
+    assert "E2B" in TIER_LOW.filename and "qat" in TIER_LOW.filename and TIER_LOW.n_ctx == 8192
+    assert "E4B" in TIER_MID.filename and "qat" in TIER_MID.filename and TIER_MID.n_ctx == 16384
     assert "E4B" in TIER_HIGH.filename and "Q8_0" in TIER_HIGH.filename and TIER_HIGH.n_ctx == 32768
 
 
@@ -90,6 +90,7 @@ def test_resolve_mid_tier_at_16gb(clean_model_env):
 def test_resolve_high_tier_at_24gb(clean_model_env):
     clean_model_env.setenv("QUANTSCRIPT_TOTAL_MEMORY_BYTES", str(24 * GIB))
     cfg = resolve_model_config()
+    assert cfg["tier"] is TIER_HIGH
     assert cfg["filename"] == TIER_HIGH.filename
     assert cfg["n_ctx"] == 32768
 

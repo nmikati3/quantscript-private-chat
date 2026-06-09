@@ -9,7 +9,8 @@ QuantScript's own source code only.
 Bundled model (downloaded at runtime)
 ================================================================================
 
-  Google Gemma 4 (unsloth/gemma-4-E4B-it-GGUF; base: google/gemma-4-E4B-it)
+  Google Gemma 4 (unsloth/gemma-4-E2B-it-qat-GGUF, unsloth/gemma-4-E4B-it-qat-GGUF,
+  unsloth/gemma-4-E4B-it-GGUF; base: google/gemma-4-E2B-it, google/gemma-4-E4B-it)
     Apache-2.0
     Gemma 4 is released under the Apache License 2.0. "Gemma" is a Google
     trademark; the license grants no trademark rights and does not imply

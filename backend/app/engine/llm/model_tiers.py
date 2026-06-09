@@ -4,11 +4,15 @@ The desktop app ships a single binary that runs on very different Macs (an 8 GB
 M1 Air through a 64 GB Studio). The Gemma weights must fit in unified memory
 *alongside* macOS, the webview and the Python sidecar, so loading the largest
 quant everywhere either OOM-kills the process or thrashes. Instead we detect
-total RAM at startup and choose a (model, quant, context window) tier:
+total RAM at startup and choose a (model, quant, context window) tier.
 
-    < 16 GB  -> Gemma 4 E2B, Q3_K_M, N_CTX 8192   (~2.4 GB weights)
-    16-24 GB -> Gemma 4 E4B, Q6_K,   N_CTX 16384  (~7.1 GB weights)
-    >= 24 GB -> Gemma 4 E4B, Q8_0,   N_CTX 32768  (~8.2 GB weights)
+The small and mid tiers use Unsloth's Gemma 4 QAT (quantization-aware training)
+GGUFs in the ``UD-Q4_K_XL`` format (near-BF16 quality at ~4-bit size). The high
+tier runs the near-lossless 8-bit E4B ``Q8_0``:
+
+    < 16 GB  -> Gemma 4 E2B QAT, UD-Q4_K_XL, N_CTX 8192   (~2.6 GB weights)
+    16-24 GB -> Gemma 4 E4B QAT, UD-Q4_K_XL, N_CTX 16384  (~4.2 GB weights)
+    >= 24 GB -> Gemma 4 E4B,     Q8_0,       N_CTX 32768  (~8.2 GB weights)
 
 Every value can still be overridden explicitly via environment variables
 (``LLAMA_REPO_ID``/``LLAMA_FILENAME``/``LLAMA_MMPROJ_FILENAME``/``N_CTX``),
@@ -41,21 +45,24 @@ class ModelTier:
     filename: str
     mmproj_filename: str
     n_ctx: int
+    # Memory-constrained tier (e.g. 8 GB Macs). Heavy multi-call paths such as
+    # deep research scale themselves down ("lite" mode) when this is set, so a
+    # long run does not exhaust unified memory and crash mid-workflow.
+    low_memory: bool = False
 
 
-# The same ``mmproj`` (vision projector) filename exists in both the E2B and
-# E4B unsloth repos, so attachments work across every tier.
 TIER_LOW = ModelTier(
     label="low (<16GB RAM)",
-    repo_id="unsloth/gemma-4-E2B-it-GGUF",
-    filename="gemma-4-E2B-it-Q3_K_M.gguf",
+    repo_id="unsloth/gemma-4-E2B-it-qat-GGUF",
+    filename="gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
     mmproj_filename="mmproj-F16.gguf",
     n_ctx=8192,
+    low_memory=True,
 )
 TIER_MID = ModelTier(
     label="mid (16-24GB RAM)",
-    repo_id="unsloth/gemma-4-E4B-it-GGUF",
-    filename="gemma-4-E4B-it-Q4_K_M.gguf",
+    repo_id="unsloth/gemma-4-E4B-it-qat-GGUF",
+    filename="gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
     mmproj_filename="mmproj-F16.gguf",
     n_ctx=16384,
 )
