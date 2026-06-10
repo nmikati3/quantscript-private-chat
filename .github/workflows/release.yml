@@ -80,7 +80,7 @@ jobs:
           printf '%s' "$APPLE_API_KEY_P8" | base64 --decode > "$key_path"
           echo "path=$key_path" >> "$GITHUB_OUTPUT"
 
-      - name: Build, sign & notarize (.app)
+      - name: Build, sign & notarize (.app + .dmg)
         working-directory: frontend
         env:
           # Tauri imports this cert into a temporary keychain automatically.
@@ -91,7 +91,38 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_KEY_PATH: ${{ steps.apikey.outputs.path }}
-        run: npm run tauri:build
+        # The app build + signing + notarization are deterministic, but Tauri's
+        # final DMG packaging (bundle_dmg.sh -> hdiutil) is intermittently flaky
+        # on GitHub's headless macOS runners: hdiutil occasionally fails to
+        # create/attach the scratch image and the script exits within seconds,
+        # with Tauri surfacing only "failed to run bundle_dmg.sh" (the hdiutil
+        # error itself is swallowed). Retry the whole build a couple of times,
+        # clearing any partial .dmg and stale mount between attempts so a
+        # transient hdiutil hiccup doesn't fail an otherwise-good release.
+        run: |
+          set -uo pipefail
+          attempts=3
+          for i in $(seq 1 "$attempts"); do
+            echo "::group::tauri build (attempt $i/$attempts)"
+            if npm run tauri:build; then
+              echo "::endgroup::"
+              echo "Build succeeded on attempt $i."
+              exit 0
+            fi
+            echo "::endgroup::"
+            if [ "$i" -lt "$attempts" ]; then
+              echo "::warning::tauri build failed on attempt $i (likely flaky DMG packaging); cleaning up and retrying."
+              # Remove partial DMGs and detach any scratch volume a failed
+              # bundle_dmg.sh may have left mounted, then back off briefly.
+              node scripts/desktop/clean-dmg-artifacts.mjs || true
+              for vol in /Volumes/QuantScript*; do
+                [ -e "$vol" ] && hdiutil detach -force "$vol" >/dev/null 2>&1 || true
+              done
+              sleep 15
+            fi
+          done
+          echo "::error::tauri build failed after $attempts attempts."
+          exit 1
 
       - name: Notarize & staple the .dmg
         working-directory: frontend
