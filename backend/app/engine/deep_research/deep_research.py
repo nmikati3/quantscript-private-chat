@@ -19,6 +19,7 @@ from app.engine.deep_research.utils import (
     get_buffer_string,
     is_token_limit_exceeded,
     truncate_preserving_sources,
+    condense_notes_to_budget,
     build_source_catalog,
     finalize_report_sources,
 )
@@ -75,6 +76,14 @@ DEEP_RESEARCH_TEMPERATURE = float(os.environ.get("DEEP_RESEARCH_TEMPERATURE", "0
 # the catalog the model picks from and the rendered Sources list, so a run with
 # many results stays readable and easy for a small model to cite correctly.
 MAX_REPORT_SOURCES = int(os.environ.get("MAX_REPORT_SOURCES", "30"))
+# Rough chars-per-token ratio used to size char budgets against the token-based
+# context window (Gemma averages ~4 chars/token). Kept on the low side so the
+# estimate over-reserves headroom rather than under-reserving it.
+_CHARS_PER_TOKEN = 4
+# Safety headroom (chars) carved out of the final report's input budget to
+# absorb tokenizer-estimate error (low-memory tier only, where overshooting the
+# window means an OOM crash rather than a graceful trim).
+_FINAL_REPORT_SAFETY_CHARS = 4000
 
 logger.info(
     "Deep research profile: %s (iterations=%d, searches=%d, articles/search=%d, "
@@ -491,14 +500,47 @@ async def final_report_generation(
     Returns:
         Dict with 'final_report' and 'messages'
     """
-    notes_text = "\n".join(notes)
-
     # The model cites sources by number from this catalog and is told not to
     # write URLs; finalize_report_sources() then rebuilds an authoritative,
     # renumbered Sources list from the real fetched records. Cap the catalog so a
     # run with many results stays readable and easy for a small model to cite.
     candidates = (sources or [])[:MAX_REPORT_SOURCES]
     catalog = build_source_catalog(candidates)
+
+    notes_text = "\n".join(notes)
+
+    # Low-memory tier ONLY: proactively bound the research notes so this final
+    # decode — the largest prompt of the whole run, plus the report it generates
+    # — fits inside the small context window. On these machines an over-long
+    # decode exhausts unified memory and crashes; crucially that OOM surfaces as
+    # a generic runtime error, NOT a token-limit error, so the retry/shrink loop
+    # below never catches it. The notes must therefore be sized up front. Other
+    # tiers have ample context/memory and keep the full findings unchanged.
+    #
+    # Budget = (context window − report output budget), in chars, minus the rest
+    # of the prompt (template + brief + messages + catalog) and a safety margin.
+    # condense_notes_to_budget keeps every topic (trimming each proportionally)
+    # so research breadth is preserved rather than dropping whole trailing notes.
+    if _LITE:
+        prompt_overhead_chars = (
+            len(final_report_generation_prompt)
+            + len(research_brief)
+            + len(get_buffer_string(messages))
+            + len(catalog)
+        )
+        input_char_budget = max(0, N_CTX - MAX_TOKENS_FINAL_REPORT) * _CHARS_PER_TOKEN
+        findings_char_budget = max(
+            800, input_char_budget - prompt_overhead_chars - _FINAL_REPORT_SAFETY_CHARS
+        )
+        condensed = condense_notes_to_budget(notes, findings_char_budget)
+        if len(condensed) < len(notes_text):
+            logger.info(
+                "Condensed research notes for final report (low-memory tier): "
+                "%d -> %d chars (budget=%d, N_CTX=%d, report_tokens=%d)",
+                len(notes_text), len(condensed), findings_char_budget,
+                N_CTX, MAX_TOKENS_FINAL_REPORT,
+            )
+        notes_text = condensed
 
     # Attempt report generation with token limit retry logic
     max_retries = 3

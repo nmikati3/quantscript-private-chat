@@ -2,11 +2,41 @@
 
 from app.engine.deep_research.utils import (
     build_source_catalog,
+    condense_notes_to_budget,
     finalize_report_sources,
     format_sources_block,
     sources_to_entries,
     truncate_preserving_sources,
 )
+
+
+def test_condense_notes_passthrough_when_within_budget():
+    notes = ["short one", "short two"]
+    assert condense_notes_to_budget(notes, 1000) == "short one\nshort two"
+
+
+def test_condense_notes_keeps_every_topic_within_budget():
+    # Each topic is large; a tail-truncation would drop whole trailing topics.
+    notes = [
+        "TOPIC_ALPHA " + "a" * 4000,
+        "TOPIC_BETA " + "b" * 4000,
+        "TOPIC_GAMMA " + "c" * 4000,
+    ]
+    out = condense_notes_to_budget(notes, 1500)
+
+    assert len(out) <= 1500
+    # Breadth preserved: every topic still contributes to the condensed notes.
+    assert "TOPIC_ALPHA" in out
+    assert "TOPIC_BETA" in out
+    assert "TOPIC_GAMMA" in out
+
+
+def test_condense_notes_empty_budget_returns_empty():
+    assert condense_notes_to_budget(["anything"], 0) == ""
+
+
+def test_condense_notes_ignores_blank_entries():
+    assert condense_notes_to_budget(["", "  ", "real"], 1000) == "real"
 
 
 def test_short_text_passes_through_unchanged():

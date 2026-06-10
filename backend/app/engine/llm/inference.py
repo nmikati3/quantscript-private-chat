@@ -36,6 +36,10 @@ MODEL_TIER = _MODEL_CONFIG["tier"]
 # Other tiers are unaffected. Override with LOW_MEMORY_TEMPERATURE.
 LOW_MEMORY_TEMPERATURE = float(os.environ.get("LOW_MEMORY_TEMPERATURE", "0.1"))
 
+NB_ARTICLES_WEB_SEARCH = 5
+if MODEL_TIER.low_memory:
+  NB_ARTICLES_WEB_SEARCH = 2
+
 
 def _resolve_temperature(temperature: float | None) -> float | None:
     """Clamp the sampling temperature on the memory-constrained (E2B) tier.
@@ -307,7 +311,7 @@ def web_search_system_prompt(messages):
 
     query = write_web_search_query(messages)
 
-    articles = web_search_and_fetch_articles(query, n=5)
+    articles = web_search_and_fetch_articles(query, n=NB_ARTICLES_WEB_SEARCH)
 
     system_prompt = compute_web_search_system_prompt(articles)
 

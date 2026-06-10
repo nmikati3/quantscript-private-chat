@@ -245,6 +245,45 @@ def truncate_preserving_sources(
     body = _truncate_on_boundary(text, body_budget)
     return body + _TRUNCATION_MARKER + footer
 
+
+def condense_notes_to_budget(notes: List[str], max_chars: int) -> str:
+    """Join research notes to fit ``max_chars`` while keeping every topic.
+
+    Each note is one round/topic of compressed findings. Tail-truncating the
+    joined text would drop whole trailing topics; instead each note gets an
+    equal share of the budget and is trimmed on a clean boundary, so the breadth
+    of the research is preserved even when the total has to shrink (e.g. to keep
+    the final-report decode inside a small machine's context window).
+    """
+    cleaned = [n for n in notes if n and n.strip()]
+    if not cleaned:
+        return ""
+    joined = "\n".join(cleaned)
+    if max_chars <= 0:
+        return ""
+    if len(joined) <= max_chars:
+        return joined
+
+    sep_chars = len(cleaned) - 1
+    per_note = max(200, (max_chars - sep_chars) // len(cleaned))
+    marker_len = len(_TRUNCATION_MARKER)
+
+    trimmed: List[str] = []
+    for note in cleaned:
+        if len(note) <= per_note:
+            trimmed.append(note)
+        else:
+            body = _truncate_on_boundary(note, max(0, per_note - marker_len))
+            if body:
+                trimmed.append(body + _TRUNCATION_MARKER)
+    result = "\n".join(t for t in trimmed if t)
+
+    # Per-note markers can nudge the total slightly over; enforce the ceiling.
+    if len(result) > max_chars:
+        result = _truncate_on_boundary(result, max_chars)
+    return result
+
+
 def get_today_str() -> str:
     """Get today's date as a string."""
     return str(pd.Timestamp.now())[:10]
