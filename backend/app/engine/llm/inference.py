@@ -30,6 +30,49 @@ LLAMA_MMPROJ_FILENAME = _MODEL_CONFIG["mmproj_filename"]
 # laptop and crashing mid-run.
 MODEL_TIER = _MODEL_CONFIG["tier"]
 
+# Low-memory machines run the small E2B model, which drifts and hallucinates at
+# higher sampling temperatures. On that tier we cap *every* model call to a low
+# temperature so chat, web search, titles and deep research all stay grounded.
+# Other tiers are unaffected. Override with LOW_MEMORY_TEMPERATURE.
+LOW_MEMORY_TEMPERATURE = float(os.environ.get("LOW_MEMORY_TEMPERATURE", "0.1"))
+
+
+def _resolve_temperature(temperature: float | None) -> float | None:
+    """Clamp the sampling temperature on the memory-constrained (E2B) tier.
+
+    On the low-memory tier the small model hallucinates quickly, so every call is
+    capped at ``LOW_MEMORY_TEMPERATURE`` regardless of what the caller asked for
+    (an explicit higher value is lowered; an unset value becomes the cap). On all
+    other tiers the caller's value is returned untouched — ``None`` lets
+    llama.cpp apply its own default.
+    """
+    if getattr(MODEL_TIER, "low_memory", False):
+        if temperature is None:
+            return LOW_MEMORY_TEMPERATURE
+        return min(temperature, LOW_MEMORY_TEMPERATURE)
+    return temperature
+
+
+# Companion to LOW_MEMORY_TEMPERATURE: a tighter top-k on the small E2B tier
+# narrows the sampling pool to the most likely tokens, which further curbs the
+# small model's drift. Ignored on other tiers. Override with LOW_MEMORY_TOP_K.
+LOW_MEMORY_TOP_K = int(os.environ.get("LOW_MEMORY_TOP_K", "20"))
+
+
+def _resolve_top_k(top_k: int | None = None) -> int | None:
+    """Clamp ``top_k`` on the memory-constrained (E2B) tier.
+
+    Mirrors ``_resolve_temperature``: on the low-memory tier the sampling pool is
+    capped at ``LOW_MEMORY_TOP_K`` (an explicit larger value is lowered; an unset
+    value becomes the cap). On other tiers the caller's value is returned
+    untouched — ``None`` lets llama.cpp apply its own default.
+    """
+    if getattr(MODEL_TIER, "low_memory", False):
+        if top_k is None:
+            return LOW_MEMORY_TOP_K
+        return min(top_k, LOW_MEMORY_TOP_K)
+    return top_k
+
 # Chat-template modes. The model speaks a different template per mode, and the
 # template is fixed at construction time, so changing mode means rebuilding the
 # Llama object (see `initialize_llama`).
@@ -287,9 +330,9 @@ def _stream_completion_once(messages, temperature):
     messages=messages,
     stream=True,
     max_tokens=MAX_TOKENS,
-    temperature=temperature,
+    temperature=_resolve_temperature(temperature),
     top_p=0.95,
-    top_k=64,
+    top_k=_resolve_top_k(64),
   )
   for chunk in response:
     choices = chunk.get("choices")
@@ -452,8 +495,12 @@ def get_structured_llm_response(response_format, messages, temperature=None):
       },
       "max_tokens": MAX_TOKENS,
   }
+  temperature = _resolve_temperature(temperature)
   if temperature is not None:
     kwargs["temperature"] = temperature
+  top_k = _resolve_top_k()
+  if top_k is not None:
+    kwargs["top_k"] = top_k
 
   response = CLIENT_LLAMA.create_chat_completion(**kwargs)["choices"][0]["message"]["content"]
 
@@ -481,8 +528,12 @@ async def get_llm_response_with_tools(messages, tools=None, max_tokens=None, tem
   if max_tokens:
     kwargs["max_tokens"] = max_tokens
 
+  temperature = _resolve_temperature(temperature)
   if temperature is not None:
     kwargs["temperature"] = temperature
+  top_k = _resolve_top_k()
+  if top_k is not None:
+    kwargs["top_k"] = top_k
     
   if tools:
     kwargs["tools"] = tools

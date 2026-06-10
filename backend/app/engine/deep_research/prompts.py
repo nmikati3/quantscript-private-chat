@@ -105,7 +105,7 @@ Only these fully comprehensive cleaned findings are going to be returned to the 
 </Task>
 
 <Guidelines>
-1. Your output findings should be fully comprehensive and include ALL of the information and sources that the researcher has gathered from tool calls and web searches. It is expected that you repeat key information verbatim.
+1. Your output findings should be fully comprehensive and include ALL of the information and sources that the researcher has gathered from web searches. It is expected that you repeat key information verbatim.
 2. This report can be as long as necessary to return ALL of the information that the researcher has gathered.
 3. In your report, you should return inline citations for each source that the researcher found. In particular, the researcher will use the web_search tool to find relevant documents, make sure to include the URLs of the documents in your response.
 4. You should include a "Sources" section at the end of the report that lists all of the sources the researcher found with corresponding citations, cited against statements in the report.
@@ -115,7 +115,7 @@ Only these fully comprehensive cleaned findings are going to be returned to the 
 
 <Output Format>
 The report should be structured like this:
-**List of Queries and Tool Calls Made**
+**List of Queries Made**
 **Fully Comprehensive Findings**
 **List of All Relevant Sources (with citations in the report)**
 </Output Format>

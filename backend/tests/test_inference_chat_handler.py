@@ -11,7 +11,47 @@ from app.engine.llm.inference import (
     _get_chat_handler,
     _messages_have_attachment,
     _resolve_model_mode,
+    _resolve_temperature,
+    _resolve_top_k,
 )
+
+
+class _Tier:
+    def __init__(self, low_memory):
+        self.low_memory = low_memory
+
+
+def test_resolve_temperature_passes_through_on_normal_tier():
+    with patch.object(inference, "MODEL_TIER", _Tier(low_memory=False)):
+        # Caller's value is honored; None stays None (llama.cpp default).
+        assert _resolve_temperature(0.8) == 0.8
+        assert _resolve_temperature(None) is None
+
+
+def test_resolve_temperature_clamps_on_low_memory_tier():
+    with patch.object(inference, "MODEL_TIER", _Tier(low_memory=True)), \
+         patch.object(inference, "LOW_MEMORY_TEMPERATURE", 0.2):
+        # Higher requested values are lowered; unset becomes the cap; already-low
+        # values are left untouched.
+        assert _resolve_temperature(1.0) == 0.2
+        assert _resolve_temperature(None) == 0.2
+        assert _resolve_temperature(0.1) == 0.1
+
+
+def test_resolve_top_k_passes_through_on_normal_tier():
+    with patch.object(inference, "MODEL_TIER", _Tier(low_memory=False)):
+        assert _resolve_top_k(64) == 64
+        assert _resolve_top_k() is None
+
+
+def test_resolve_top_k_clamps_on_low_memory_tier():
+    with patch.object(inference, "MODEL_TIER", _Tier(low_memory=True)), \
+         patch.object(inference, "LOW_MEMORY_TOP_K", 20):
+        # Larger requested pools are narrowed; unset becomes the cap; an
+        # already-smaller value is left untouched.
+        assert _resolve_top_k(64) == 20
+        assert _resolve_top_k() == 20
+        assert _resolve_top_k(10) == 10
 
 
 @pytest.fixture(autouse=True)

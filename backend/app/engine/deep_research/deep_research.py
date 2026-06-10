@@ -54,14 +54,14 @@ def _tiered_limit(env_var: str, full: int, lite: int) -> int:
     return lite if _LITE else full
 
 
-MAX_TOKENS_COMPRESSION = _tiered_limit("MAX_TOKENS_COMPRESSION", 8192, 4096)
+MAX_TOKENS_COMPRESSION = _tiered_limit("MAX_TOKENS_COMPRESSION", 8192, 2048)
 MAX_TOKENS_FINAL_REPORT = _tiered_limit("MAX_TOKENS_FINAL_REPORT", 8192, 4096)
 # How many supervisor planning rounds (topics) the workflow runs.
 MAX_RESEARCHER_ITERATIONS = _tiered_limit("MAX_RESEARCHER_ITERATIONS", 5, 2)
 # How many web searches a single researcher may run for one topic.
 MAX_RESEARCHER_SEARCHES = _tiered_limit("MAX_RESEARCHER_SEARCHES", 3, 2)
 # How many articles each web search fetches into the model's context.
-RESEARCH_ARTICLES_PER_SEARCH = _tiered_limit("RESEARCH_ARTICLES_PER_SEARCH", 3, 3)
+RESEARCH_ARTICLES_PER_SEARCH = _tiered_limit("RESEARCH_ARTICLES_PER_SEARCH", 3, 2)
 # N_CTX is imported from inference so deep research uses the same memory-tiered
 # context window (env var N_CTX still overrides it there).
 # How many times to re-sample a structured decision when its JSON can't be parsed/validated.
@@ -70,7 +70,7 @@ MAX_SUPERVISOR_PARSE_RETRIES = int(os.environ.get("MAX_SUPERVISOR_PARSE_RETRIES"
 # (4-bit QAT) models follow the prompt's citation/language rules far more
 # reliably when sampling is near-greedy, which cuts hallucinated URLs and
 # wrong-language drift.
-DEEP_RESEARCH_TEMPERATURE = float(os.environ.get("DEEP_RESEARCH_TEMPERATURE", "0.3"))
+DEEP_RESEARCH_TEMPERATURE = float(os.environ.get("DEEP_RESEARCH_TEMPERATURE", "0.1"))
 # Maximum number of sources offered to (and citable by) the final report. Bounds
 # the catalog the model picks from and the rendered Sources list, so a run with
 # many results stays readable and easy for a small model to cite correctly.
@@ -330,7 +330,10 @@ async def compress_research(
 
     # Gemma ignores system-role messages, so fold the compression instructions
     # and the findings into a single user turn.
-    findings = transcript
+    if _LITE:
+        findings = truncate_preserving_sources(transcript, 2000, sources=sources)
+    else:
+        findings = transcript
 
     synthesis_attempts = 0
     max_attempts = 3
