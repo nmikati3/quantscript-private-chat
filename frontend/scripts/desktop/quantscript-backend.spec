@@ -38,6 +38,14 @@ hidden_imports = (
     + collect_submodules("slowapi")
     + collect_submodules("llama_cpp")
     + collect_submodules("huggingface_hub")
+    # trafilatura resolves extractor/config submodules dynamically and reads a
+    # bundled settings.cfg at import time; without collecting its submodules +
+    # data files the frozen app raises "No option 'min_extracted_size' in
+    # section: 'DEFAULT'" on every extract() and silently returns empty content.
+    + collect_submodules("trafilatura")
+    + collect_submodules("justext")
+    + collect_submodules("courlan")
+    + collect_submodules("htmldate")
     + [
         # uvicorn runtime deps that are not always traced statically
         "h11",
@@ -82,6 +90,12 @@ native_binaries = (
 native_data = (
     collect_data_files("llama_cpp", include_py_files=False, subdir="lib")
     + collect_data_files("pypdfium2_raw", include_py_files=False)
+    # trafilatura.settings.cfg + justext/courlan/htmldate data files (stoplists,
+    # config). Required for article extraction to work in the frozen bundle.
+    + collect_data_files("trafilatura")
+    + collect_data_files("justext")
+    + collect_data_files("courlan")
+    + collect_data_files("htmldate")
 )
 
 a = Analysis(

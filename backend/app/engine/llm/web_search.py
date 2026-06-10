@@ -241,7 +241,9 @@ def _rank_results(results: list) -> list:
 def web_search(query, n=NB_ARTICLES):
     """Sync variant — safe to call only when no event loop is running (e.g. regular chat search)."""
     result = asyncio.run(_webserp_search(query=query, max_results=n))
-    return result["results"]
+    results = result["results"]
+    logger.debug("web_search query=%r n=%d -> %d results", query, n, len(results))
+    return results
 
 
 async def web_search_async(query, n=NB_ARTICLES):
@@ -255,6 +257,7 @@ def fetch_article(url):
     try:
         html = _fetch_html_with_redirect_guards(url)
         if not html:
+            logger.debug("fetch_article: empty/blocked fetch for %s", url)
             return ""
 
         text = trafilatura.extract(html, include_links=True, include_tables=True)
@@ -267,9 +270,15 @@ def fetch_article(url):
             text = (article or soup).get_text(separator="\n")
 
         text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()[:_MAX_ARTICLE_CHARS]
+        out = text.strip()[:_MAX_ARTICLE_CHARS]
+        logger.debug("fetch_article: extracted %d chars from %s", len(out), url)
+        return out
 
-    except Exception:
+    except Exception as e:
+        # Never let an extraction error silently drop an article's content: a
+        # swallowed trafilatura/config failure here once made the packaged app
+        # return only source links with no answer. Surface it so it's debuggable.
+        logger.warning("fetch_article failed to extract %s: %r", url, e)
         return ""
 
 
