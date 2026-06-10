@@ -22,6 +22,8 @@ export interface StartupStatusPayload {
   ready: boolean;
   error: string | null;
   phases: StartupPhase[];
+  /** False on low-memory (< 16 GB RAM) machines where deep research can't run. */
+  deepResearchAvailable?: boolean;
 }
 
 /** Poll while the backend loads models. */

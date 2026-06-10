@@ -7,9 +7,14 @@ import logging
 import threading
 from typing import Any, Literal
 
+from app.engine.llm.model_tiers import detect_total_memory_bytes, select_model_tier
+
 logger = logging.getLogger(__name__)
 
 PhaseStatus = Literal["pending", "running", "done", "error"]
+
+# Deep research is currently blocked for low-memory machines.
+DEEP_RESEARCH_AVAILABLE = not select_model_tier(detect_total_memory_bytes()).low_memory
 
 # Order matches main.py startup; labels mirror what you see in the terminal (weights / loading).
 PHASES: list[dict[str, str]] = [
@@ -68,6 +73,7 @@ def get_startup_snapshot() -> dict[str, Any]:
             "ready": _ready,
             "error": _startup_error,
             "phases": phases,
+            "deepResearchAvailable": DEEP_RESEARCH_AVAILABLE,
         }
 
 

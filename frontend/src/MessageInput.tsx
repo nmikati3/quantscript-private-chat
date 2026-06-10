@@ -39,6 +39,8 @@ interface Props {
     patch: DeepResearchLivePatch | null,
     messageId?: string,
   ) => void;
+  /** False on low-memory (< 16 GB RAM) machines where deep research is disabled. */
+  deepResearchAvailable?: boolean;
   onConversationCreated?: () => void;
 }
 
@@ -46,6 +48,11 @@ const ACTIONS = [
   "Web Search",
   "Deep Research"
 ];
+
+// Shown when the user tries to use Deep Research on a machine that the backend
+// flagged as low-memory (< 16 GB RAM), where the workflow can't run safely.
+const DEEP_RESEARCH_UNAVAILABLE_MESSAGE =
+  "Deep Research requires at least 16 GB of RAM. This machine doesn't have enough memory to support Deep Research.";
 
 // Display-only labels for the action pills. The keys above remain the internal
 // identifiers used in logic/payloads; only the rendered text differs.
@@ -59,7 +66,7 @@ function fileExtensionLower(path: string): string {
   return i >= 0 ? name.slice(i).toLowerCase() : "";
 }
 
-export default function MessageInput({ onSend, updateLastMessage, messages, onLoadingChange, selectedConversationId, activeDeepResearchConversations, setSelectedConversationId, setDeepResearchActive, setDeepResearchInactive, applyDeepResearchLive, onConversationCreated }: Props) {
+export default function MessageInput({ onSend, updateLastMessage, messages, onLoadingChange, selectedConversationId, activeDeepResearchConversations, setSelectedConversationId, setDeepResearchActive, setDeepResearchInactive, applyDeepResearchLive, deepResearchAvailable = true, onConversationCreated }: Props) {
   const [text, setText] = useState("");
   const [selectedAction, setSelectedAction] = useState<string | null>(null);
   const [chatUploadLocalPath, setChatUploadLocalPath] = useState<string | null>(null);
@@ -460,8 +467,8 @@ export default function MessageInput({ onSend, updateLastMessage, messages, onLo
       const isTimeout =
         error instanceof Error && error.name === "StreamTimeoutError";
       const errorContent = isTimeout
-        ? "Error: The request timed out. Try again or start a new chat."
-        : `Error: Failed to get response from server${error instanceof Error ? `: ${error.message}` : ""}`;
+        ? "Error: The request timed out. This might be because of a lack of available memory, especially if you are using a low-memory machine. To guarantee privacy, QuantScript runs only using your laptop's power. Try closing other apps and try again."
+        : `Error: Failed to get response from server${error instanceof Error ? `: ${error.message}` : ""}. This might be because of a lack of available memory, especially if you are using a low-memory machine. To guarantee privacy, QuantScript runs only using your laptop's power. Try closing other apps and try again.`;
 
       const lastMessage = messages[messages.length - 1];
       if (lastMessage && lastMessage.isDeepResearch && !lastMessage.isComplete) {
@@ -560,12 +567,20 @@ export default function MessageInput({ onSend, updateLastMessage, messages, onLo
       >
         {ACTIONS.map((action) => {
           const isSelected = selectedAction === action;
+          const actionDisabled = action === "Deep Research" && !deepResearchAvailable;
           return (
             <button
               key={action}
               type="button"
+              aria-disabled={actionDisabled}
               className={`action-mode-button${isSelected ? " action-mode-button--selected" : ""}`}
+              title={actionDisabled ? DEEP_RESEARCH_UNAVAILABLE_MESSAGE : undefined}
               onClick={() => {
+                if (actionDisabled) {
+                  setReminderMessage(DEEP_RESEARCH_UNAVAILABLE_MESSAGE);
+                  setTimeout(() => setReminderMessage(null), 6000);
+                  return;
+                }
                 const next = isSelected ? null : action;
                 setSelectedAction(next);
                 if (action === "Web Search") {
@@ -578,10 +593,11 @@ export default function MessageInput({ onSend, updateLastMessage, messages, onLo
                 borderRadius: "8px",
                 border: isSelected ? "1px solid #111" : "1px solid #d2d6db",
                 background: isSelected ? "#111" : "#fff",
-                color: isSelected ? "#fff" : "#111",
+                color: actionDisabled ? "#9ca3af" : isSelected ? "#fff" : "#111",
                 padding: "0.4rem 0.9rem",
                 fontSize: "0.85rem",
-                cursor: "pointer",
+                cursor: actionDisabled ? "not-allowed" : "pointer",
+                opacity: actionDisabled ? 0.6 : 1,
                 transition: "all 0.2s ease"
               }}
             >
@@ -882,6 +898,15 @@ export default function MessageInput({ onSend, updateLastMessage, messages, onLo
               {reminderMessage}
             </div>
           )}
+          <div
+            style={{
+              textAlign: "center",
+              fontSize: "0.75rem",
+              color: "#6b7280",
+            }}
+          >
+            QuantScript relies on AI models that can make mistakes. Verify important responses.
+          </div>
       </div>
     </div>
   );

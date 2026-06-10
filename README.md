@@ -11,7 +11,7 @@ Great for private day-to-day chats, for brainstorming business ideas without any
 - **Zero-config**: download the app and open it, and you're good to go: it will automatically choose the best model for your hardware and will work directly without any actions needed on your end.
 - **Private, local-first**: the app only communicates with the outside world when using web search or deep research. The user has full control on whether to use these features or not. All inference, search, and storage happens on your laptop. **No accounts, no cloud, no telemetry.** The app does not phone home.
 - **Works on 8GB RAM**: the app works on laptops with low memory, starting at 8GB RAM for Mac users.
-- **Deep Research - Lite**: the app can run a lighter version of Deep Research even with a lightweight gemma4 model.
+- **Deep Research - Lite**: the app can run a lighter version of Deep Research even with a lightweight gemma4 model. Deep Research - Lite works from 8GB RAM but we recommend at least 16GB RAM for better results.
 
 ## Installation
 

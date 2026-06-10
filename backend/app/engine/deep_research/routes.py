@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import StreamingResponse
 import asyncio
 import json
 import logging
 from app.engine.deep_research.deep_research import deep_research_workflow
 from app.core.sanitization import sanitize_messages
+from app.core.startup_state import DEEP_RESEARCH_AVAILABLE
 from app.api.models import DeepResearchRequest
 from app.api.routes import limiter
 from app.engine.llm.inference import initialize_llama
@@ -16,6 +17,12 @@ router = APIRouter(tags=["deep_research"])
 @router.post("/deep_research_response")
 @limiter.limit("5/minute")
 async def deep_research_response(request: Request, body: DeepResearchRequest):
+
+    if not DEEP_RESEARCH_AVAILABLE:
+        raise HTTPException(
+            status_code=403,
+            detail="Deep research requires at least 16 GB of RAM. This machine does not have enough memory to support it.",
+        )
 
     messages = sanitize_messages(body.messages)
 

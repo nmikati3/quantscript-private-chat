@@ -1,5 +1,6 @@
 """Main implementation for the Deep Research agent adapted from LangChain open deep research implementation for less powerful models without LangChain dependencies.
 Runs a lighter, more deterministic version of the Deep Research agent that is more suitable for less powerful models.
+Configuration for low-memory machines is kept for potential future use even if deep research is currently blocked for low-memory machines.
 """
 
 import json
@@ -63,18 +64,11 @@ MAX_RESEARCHER_ITERATIONS = _tiered_limit("MAX_RESEARCHER_ITERATIONS", 5, 2)
 MAX_RESEARCHER_SEARCHES = _tiered_limit("MAX_RESEARCHER_SEARCHES", 3, 2)
 # How many articles each web search fetches into the model's context.
 RESEARCH_ARTICLES_PER_SEARCH = _tiered_limit("RESEARCH_ARTICLES_PER_SEARCH", 3, 2)
-# N_CTX is imported from inference so deep research uses the same memory-tiered
-# context window (env var N_CTX still overrides it there).
 # How many times to re-sample a structured decision when its JSON can't be parsed/validated.
 MAX_SUPERVISOR_PARSE_RETRIES = int(os.environ.get("MAX_SUPERVISOR_PARSE_RETRIES", "2"))
-# Low sampling temperature for every deep-research model call. Lower precision
-# (4-bit QAT) models follow the prompt's citation/language rules far more
-# reliably when sampling is near-greedy, which cuts hallucinated URLs and
-# wrong-language drift.
+# Low sampling temperature for every deep-research model call.
 DEEP_RESEARCH_TEMPERATURE = float(os.environ.get("DEEP_RESEARCH_TEMPERATURE", "0.1"))
-# Maximum number of sources offered to (and citable by) the final report. Bounds
-# the catalog the model picks from and the rendered Sources list, so a run with
-# many results stays readable and easy for a small model to cite correctly.
+# Maximum number of sources offered to (and citable by) the final report.
 MAX_REPORT_SOURCES = int(os.environ.get("MAX_REPORT_SOURCES", "30"))
 # Rough chars-per-token ratio used to size char budgets against the token-based
 # context window (Gemma averages ~4 chars/token). Kept on the low side so the

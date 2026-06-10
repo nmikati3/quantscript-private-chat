@@ -611,6 +611,7 @@ function App() {
           setDeepResearchActive={setDeepResearchActive}
           setDeepResearchInactive={setDeepResearchInactive}
           applyDeepResearchLive={applyDeepResearchLive}
+          deepResearchAvailable={startupSnapshot?.deepResearchAvailable ?? true}
           onConversationCreated={() => setSidebarRefreshTrigger(prev => prev + 1)}
         />
       </div>
