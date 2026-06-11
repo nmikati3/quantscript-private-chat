@@ -17,9 +17,9 @@ jobs:
   # ---------------------------------------------------------------------------
   # macOS: signed + notarized .dmg for both architectures.
   #   * aarch64 (Apple Silicon) on macos-15
-  #   * x86_64  (Intel)         on macos-13  (the last Intel-based runner image;
-  #     an arm64 binary cannot run on Intel and Rosetta only translates the
-  #     other direction, so Intel Macs need their own native build)
+  #   * x86_64  (Intel)         on macos-15-intel  (an arm64 binary cannot run
+  #     on Intel and Rosetta only translates the other direction, so Intel Macs
+  #     need their own native build)
   # Each runner builds for its own native arch, so no --target/cross-compile is
   # needed: the PyInstaller sidecar and Tauri both pick up the host arch.
   # ---------------------------------------------------------------------------
@@ -35,8 +35,11 @@ jobs:
           - arch: aarch64
             runner: macos-15
             rust_target: aarch64-apple-darwin
+          # macos-13 (the old Intel image) was retired 2025-12-08; macos-15-intel
+          # is GitHub's x86_64 macOS runner (supported until Aug 2027). See
+          # actions/runner-images#13046 and #13045.
           - arch: x86_64
-            runner: macos-13
+            runner: macos-15-intel
             rust_target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
