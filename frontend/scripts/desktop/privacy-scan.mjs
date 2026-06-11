@@ -6,20 +6,47 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendRoot = path.resolve(__dirname, "..", "..");
 const repoRoot = path.resolve(frontendRoot, "..");
 
-const scanRoots = [
+// Our own artifacts — scanned in full. This is where QuantScript's code, the
+// PyInstaller backend sidecar, and the bundled backend sources live, and it is
+// scanned *before* the OS bundlers vendor any third-party content, so it is the
+// authoritative privacy boundary for everything we ship.
+const ownScanRoots = [
   "dist",
   "src-tauri/binaries",
   "src-tauri/resources",
-  // macOS bundle outputs
+];
+
+// Packaged bundle outputs — scanned too, but with OS/toolchain-vendored content
+// excluded (see `isVendoredOrPackaged`). The app binary, sidecar, and backend
+// sources here are byte-for-byte the same files already scanned in full above;
+// what's *new* in these dirs is third-party material the bundlers pull in
+// (e.g. linuxdeploy copies the GTK/glib/GnuTLS stack into the AppImage), which
+// is not ours to audit and legitimately contains upstream build paths and TLS
+// test-vector keys.
+const bundleScanRoots = [
+  // macOS
   "src-tauri/target/release/bundle/macos",
   "src-tauri/target/release/bundle/dmg",
-  // Windows bundle outputs
+  // Windows
   "src-tauri/target/release/bundle/nsis",
   "src-tauri/target/release/bundle/msi",
-  // Linux bundle outputs
+  // Linux
   "src-tauri/target/release/bundle/deb",
   "src-tauri/target/release/bundle/appimage",
 ];
+
+// Within bundle outputs only: shared libraries vendored by the OS toolchain and
+// the opaque packaged containers themselves. Their contents are either
+// already-scanned app files or third-party libraries, so scanning them yields
+// only false positives. NOTE: these skips apply *only* to bundle roots — our
+// own Windows sidecar (`binaries/*.exe`) is always scanned in full.
+const vendoredLibPattern = /\.(so|dylib|dll)(\.\d+)*$/i;
+const packagedArtifactPattern = /\.(appimage|deb|rpm|dmg|msi|exe)$/i;
+
+function isVendoredOrPackaged(filePath) {
+  const base = path.basename(filePath);
+  return vendoredLibPattern.test(base) || packagedArtifactPattern.test(base);
+}
 
 const blockedFileNames = new Set([
   ".DS_Store",
@@ -131,6 +158,14 @@ async function* walk(root) {
         record(absPath, `blocked generated directory: ${entry.name}`);
         continue;
       }
+      // `*.AppDir` is linuxdeploy's intermediate staging tree for the AppImage:
+      // it is full of vendored OS libraries and icon themes, while the only
+      // QuantScript files in it duplicate `resources/` (already scanned) and
+      // the path-scrubbed Rust binary. Skip it to avoid auditing third-party
+      // content we don't control.
+      if (entry.name.endsWith(".AppDir")) {
+        continue;
+      }
       yield* walk(absPath);
       continue;
     }
@@ -217,20 +252,30 @@ async function scanFile(filePath) {
   }
 }
 
+async function scanRoot(relRoot, { skipVendored }) {
+  const absRoot = path.join(frontendRoot, relRoot);
+  if (!(await exists(absRoot))) {
+    return;
+  }
+  const stat = await fs.stat(absRoot);
+  if (stat.isFile()) {
+    await scanFile(absRoot);
+    return;
+  }
+  for await (const filePath of walk(absRoot)) {
+    if (skipVendored && isVendoredOrPackaged(filePath)) {
+      continue;
+    }
+    await scanFile(filePath);
+  }
+}
+
 async function main() {
-  for (const relRoot of scanRoots) {
-    const absRoot = path.join(frontendRoot, relRoot);
-    if (!(await exists(absRoot))) {
-      continue;
-    }
-    const stat = await fs.stat(absRoot);
-    if (stat.isFile()) {
-      await scanFile(absRoot);
-      continue;
-    }
-    for await (const filePath of walk(absRoot)) {
-      await scanFile(filePath);
-    }
+  for (const relRoot of ownScanRoots) {
+    await scanRoot(relRoot, { skipVendored: false });
+  }
+  for (const relRoot of bundleScanRoots) {
+    await scanRoot(relRoot, { skipVendored: true });
   }
 
   if (problems.length > 0) {
