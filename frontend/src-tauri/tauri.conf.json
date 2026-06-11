@@ -26,8 +26,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
-    "icon": ["icons/icon.png", "icons/icon.icns"],
+    "targets": "all",
+    "publisher": "QuantScript",
+    "copyright": "Copyright © QuantScript. Licensed under Apache-2.0.",
+    "category": "Productivity",
+    "shortDescription": "A zero-config, local, private ChatGPT alternative.",
+    "longDescription": "QuantScript is a local-first, offline-by-default chat app that runs a Gemma 4 model entirely on your own machine. It auto-detects your RAM and picks the best model that fits.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "externalBin": ["binaries/quantscript-backend"],
     "resources": [
       "resources/backend",
@@ -39,6 +50,24 @@
       "hardenedRuntime": true,
       "entitlements": "entitlements.plist",
       "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"]
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
     }
   }
 }

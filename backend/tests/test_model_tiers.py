@@ -1,7 +1,10 @@
 """Tests for memory-based model tier selection and env-override precedence."""
 
+import sys
+
 import pytest
 
+import app.engine.llm.model_tiers as model_tiers
 from app.engine.llm.model_tiers import (
     GIB,
     TIER_LOW,
@@ -34,10 +37,17 @@ def clean_model_env(monkeypatch):
     [
         (8, TIER_LOW),
         (12, TIER_LOW),
-        (15.9, TIER_LOW),
+        (13.9, TIER_LOW),
+        # A 16 GB box that under-reports (Windows/Linux exclude reserved memory)
+        # still resolves to the mid tier thanks to the 2 GiB tolerance.
+        (14, TIER_MID),
+        (15.6, TIER_MID),
         (16, TIER_MID),
         (20, TIER_MID),
-        (23.9, TIER_MID),
+        (21.9, TIER_MID),
+        # Likewise a 24 GB box that reports ~23.5 GiB still lands in the high tier.
+        (22, TIER_HIGH),
+        (23.5, TIER_HIGH),
         (24, TIER_HIGH),
         (32, TIER_HIGH),
         (64, TIER_HIGH),
@@ -110,3 +120,30 @@ def test_env_vars_override_tier(clean_model_env):
     assert cfg["n_ctx"] == 131072
     # The detected tier is still reported even though fields were overridden.
     assert cfg["tier"] is TIER_LOW
+
+
+def test_detect_memory_uses_windows_probe(clean_model_env, monkeypatch):
+    """On Windows, detection must come from GlobalMemoryStatusEx, not sysconf."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(model_tiers, "_detect_windows_memory_bytes", lambda: 16 * GIB)
+    # Guard against accidentally falling back to the POSIX path on Windows.
+    monkeypatch.setattr(
+        model_tiers,
+        "_detect_posix_memory_bytes",
+        lambda: pytest.fail("should not use the POSIX probe on Windows"),
+    )
+    assert detect_total_memory_bytes() == 16 * GIB
+
+
+def test_detect_memory_windows_falls_back_to_posix(clean_model_env, monkeypatch):
+    """If the Windows probe fails, detection falls back to the POSIX accounting."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(model_tiers, "_detect_windows_memory_bytes", lambda: None)
+    monkeypatch.setattr(model_tiers, "_detect_posix_memory_bytes", lambda: 24 * GIB)
+    assert detect_total_memory_bytes() == 24 * GIB
+
+
+def test_detect_memory_uses_posix_probe_on_linux(clean_model_env, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(model_tiers, "_detect_posix_memory_bytes", lambda: 8 * GIB)
+    assert detect_total_memory_bytes() == 8 * GIB

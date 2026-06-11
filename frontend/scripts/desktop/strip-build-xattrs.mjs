@@ -11,10 +11,18 @@
  * Runs as Tauri's `beforeBundleCommand`, whose cwd is the `frontend/` dir.
  */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// `com.apple.macl` is a macOS/SIP-specific extended attribute; there is nothing
+// to strip on Windows or Linux, so this step is a no-op off macOS.
+if (os.platform() !== "darwin") {
+  console.log("strip-build-xattrs: not macOS — skipping (no xattrs to strip).");
+  process.exit(0);
+}
 
 const releaseDir = process.env.CARGO_TARGET_DIR
   ? path.join(process.env.CARGO_TARGET_DIR, "release")

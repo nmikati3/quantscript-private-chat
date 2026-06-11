@@ -53,6 +53,51 @@ Accordingly, attacks that require an attacker to already have local code
 execution (or another local account) on the machine are **out of scope** (see
 [Scope](#scope)).
 
+## Code signing & distribution
+
+Code signing is **per-platform** and independent of QuantScript's runtime
+security model (loopback-only API, sidecar token, CSP). It governs how the OS
+treats the installer on first launch, not how the app behaves once running.
+
+| Platform | Current posture | What the user sees |
+| -------- | --------------- | ------------------ |
+| **macOS** | **Signed with a Developer ID certificate and notarized** by Apple (stapled). | No Gatekeeper warning; opens normally, even offline. |
+| **Windows** | **Unsigned** (NSIS `.exe`). | SmartScreen "Windows protected your PC" on first run → **More info → Run anyway**. |
+| **Linux** | **Unsigned** (`.deb` / `.AppImage`); Linux has no OS-level notarization. | No central gatekeeper; `.deb` is APT-verified only if served from a signed repo, AppImage just needs `chmod +x`. |
+
+**Do Windows and Linux *require* signing?** No — unlike macOS (where
+notarization is effectively required to avoid a hard Gatekeeper block), Windows
+and Linux will run unsigned binaries after a dismissible warning (Windows) or no
+warning at all (Linux). Signing is therefore **optional but recommended** for
+Windows to remove the SmartScreen prompt and build reputation:
+
+- **Windows:** an **OV** code-signing certificate signs the binary (SmartScreen
+  reputation still ramps up over time); an **EV** certificate clears SmartScreen
+  immediately but requires hardware-token / cloud-HSM signing. Either is a paid
+  certificate from a CA. Once obtained, set `bundle.windows.certificateThumbprint`
+  (and `digestAlgorithm` / `timestampUrl`) in `tauri.conf.json`, or sign in CI.
+- **Linux:** there is no notarization. The pragmatic integrity story is the
+  published **`.sha256` checksum** (and optionally a detached GPG signature / an
+  APT repo). AppImages can additionally be signed with `--sign`.
+
+Until signing certificates are in place, **every desktop installer ships with a
+matching `.sha256`** so downloaders can verify integrity:
+
+```bash
+# macOS / Linux
+shasum -a 256 -c QuantScript_<version>_<arch>.dmg.sha256
+sha256sum -c QuantScript_<version>_amd64.AppImage.sha256
+```
+
+```powershell
+# Windows (PowerShell)
+(Get-FileHash .\QuantScript_<version>_x64-setup.exe -Algorithm SHA256).Hash
+# compare against the .sha256 file's contents
+```
+
+Releases are published as **drafts** first, so a maintainer can download and
+verify each artifact before making it public.
+
 ## Supported versions
 
 Only the latest released version receives security fixes. Please make sure

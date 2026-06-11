@@ -10,8 +10,15 @@ const scanRoots = [
   "dist",
   "src-tauri/binaries",
   "src-tauri/resources",
+  // macOS bundle outputs
   "src-tauri/target/release/bundle/macos",
   "src-tauri/target/release/bundle/dmg",
+  // Windows bundle outputs
+  "src-tauri/target/release/bundle/nsis",
+  "src-tauri/target/release/bundle/msi",
+  // Linux bundle outputs
+  "src-tauri/target/release/bundle/deb",
+  "src-tauri/target/release/bundle/appimage",
 ];
 
 const blockedFileNames = new Set([
@@ -50,15 +57,31 @@ const secretPatterns = [
   [/\bAIza[0-9A-Za-z_-]{20,}\b/g, "Google API key"],
 ];
 
+// Home-directory path shapes for each desktop OS. A release artifact must never
+// embed the build machine's home path (it would leak a username/layout to every
+// downloader), so we hunt for all three regardless of which OS runs the scan.
+const userPathPatterns = [
+  /\/Users\/[A-Za-z0-9_.-]+/g, // macOS
+  /\/home\/[A-Za-z0-9_.-]+/g, // Linux
+  /[A-Za-z]:\\Users\\[A-Za-z0-9_.-]+/g, // Windows
+];
+
 function parseAllowedUserRoots() {
   const raw = process.env.QUANTSCRIPT_ALLOWED_EMBEDDED_USER_ROOTS || "";
   const roots = raw
-    .split(path.delimiter)
+    // Allow either delimiter so a Windows-style ';' list and a POSIX ':' list
+    // both parse, without splitting a "C:\..." drive letter.
+    .split(/[;\n]/)
+    .flatMap((item) => item.split(path.delimiter))
     .map((item) => item.trim())
     .filter(Boolean);
 
   if (process.env.GITHUB_ACTIONS === "true") {
-    roots.push("/Users/runner");
+    // GitHub-hosted runner home directories, per platform.
+    roots.push("/Users/runner"); // macOS
+    roots.push("/home/runner"); // Linux
+    roots.push("C:\\Users\\runneradmin"); // Windows
+    roots.push("C:\\Users\\runner"); // Windows (fallback)
   }
 
   return new Set(roots);
@@ -74,7 +97,10 @@ function repoRelative(absPath) {
 function redact(value) {
   return value
     .replaceAll(process.env.HOME || "\0", "<HOME>")
+    .replaceAll(process.env.USERPROFILE || "\0", "<HOME>")
     .replace(/\/Users\/[A-Za-z0-9_.-]+/g, "/Users/<user>")
+    .replace(/\/home\/[A-Za-z0-9_.-]+/g, "/home/<user>")
+    .replace(/([A-Za-z]:\\Users\\)[A-Za-z0-9_.-]+/g, "$1<user>")
     .replace(/(sk-|ghp_|gho_|ghu_|ghs_|github_pat_|hf_)[A-Za-z0-9_-]+/g, "$1<redacted>")
     .slice(0, 240);
 }
@@ -127,11 +153,13 @@ function checkPath(filePath) {
 }
 
 function checkEmbeddedUsers(filePath, text) {
-  const matches = text.matchAll(/\/Users\/[A-Za-z0-9_.-]+/g);
-  for (const match of matches) {
-    const root = match[0];
-    if (!allowedUserRoots.has(root)) {
-      record(filePath, `embedded local macOS user path: ${root}`, text.slice(match.index, match.index + 180));
+  for (const pattern of userPathPatterns) {
+    pattern.lastIndex = 0;
+    for (const match of text.matchAll(pattern)) {
+      const root = match[0];
+      if (!allowedUserRoots.has(root)) {
+        record(filePath, `embedded local home-directory path: ${root}`, text.slice(match.index, match.index + 180));
+      }
     }
   }
 }
