@@ -442,12 +442,26 @@ fn read_child_stderr(child: &mut Child) -> String {
     String::from_utf8_lossy(&buf).trim().to_string()
 }
 
+/// Result of a single spawn-and-wait attempt.
+///
+/// The distinction matters for the retry loop: an *early exit* usually means a
+/// transient problem with this specific attempt (e.g. the random port was
+/// already taken, so uvicorn failed to bind and quit) and is worth retrying on
+/// a fresh port. A *timeout* means the process is alive but was simply too slow
+/// to start serving — retrying would just multiply the (already long) wait, so
+/// the loop should stop and report it.
+enum SpawnOutcome {
+    Ready(Child),
+    ExitedEarly(String),
+    Timeout(String),
+}
+
 fn spawn_and_wait(
     mut command: Command,
     port: u16,
     timeout: Duration,
     sidecar_token: &str,
-) -> Result<Child, String> {
+) -> Result<SpawnOutcome, String> {
     let mut child = command
         .spawn()
         .map_err(|e| format!("failed to launch backend sidecar: {e}"))?;
@@ -456,7 +470,7 @@ fn spawn_and_wait(
 
     while start.elapsed() < timeout {
         if startup_status_reachable(addr, sidecar_token) {
-            return Ok(child);
+            return Ok(SpawnOutcome::Ready(child));
         }
         if let Some(status) = child
             .try_wait()
@@ -468,15 +482,18 @@ fn spawn_and_wait(
             } else {
                 format!(" — stderr: {stderr}")
             };
-            return Err(format!("backend sidecar exited early with status {status}{detail}"));
+            return Ok(SpawnOutcome::ExitedEarly(format!(
+                "backend sidecar exited early with status {status}{detail}"
+            )));
         }
         std::thread::sleep(Duration::from_millis(120));
     }
 
     kill_backend_process(&mut child);
-    Err(format!(
-        "backend sidecar did not become reachable on 127.0.0.1:{port}"
-    ))
+    Ok(SpawnOutcome::Timeout(format!(
+        "backend sidecar did not become reachable on 127.0.0.1:{port} within {}s",
+        timeout.as_secs()
+    )))
 }
 
 /// Async wrapper so the long-running spawn-and-poll work runs on a blocking
@@ -506,7 +523,10 @@ fn start_backend_sidecar_blocking(app: &AppHandle) -> Result<BackendRuntimeInfo,
     *guard = None;
 
     let sidecar_token = generate_sidecar_token();
-    let startup_timeout = Duration::from_secs(90);
+    // Generous: a cold first launch on an older / low-RAM machine has to extract
+    // the PyInstaller one-file bundle and import the full native stack (llama,
+    // numpy, pandas, …) before uvicorn can serve. 90s was too tight there.
+    let startup_timeout = Duration::from_secs(180);
     let mut attempts: Vec<String> = Vec::new();
 
     let (child, port) = {
@@ -519,18 +539,30 @@ fn start_backend_sidecar_blocking(app: &AppHandle) -> Result<BackendRuntimeInfo,
                     break;
                 };
                 configure_backend_command(app, &mut bundled_command, &sidecar_token)?;
-                match spawn_and_wait(bundled_command, port, startup_timeout, &sidecar_token) {
-                    Ok(child) => {
+                match spawn_and_wait(bundled_command, port, startup_timeout, &sidecar_token)? {
+                    SpawnOutcome::Ready(child) => {
                         launched = Some((child, port));
                         break;
                     }
-                    Err(err) => attempts.push(format!(
+                    SpawnOutcome::ExitedEarly(err) => attempts.push(format!(
                         "bundled launch attempt {}/{} on port {} failed: {}",
                         idx + 1,
                         STARTUP_PORT_ATTEMPTS,
                         port,
                         err
                     )),
+                    // Process was alive but too slow — retrying only multiplies
+                    // the wait, so stop and report this attempt.
+                    SpawnOutcome::Timeout(err) => {
+                        attempts.push(format!(
+                            "bundled launch attempt {}/{} on port {} failed: {}",
+                            idx + 1,
+                            STARTUP_PORT_ATTEMPTS,
+                            port,
+                            err
+                        ));
+                        break;
+                    }
                 }
             }
         }
@@ -542,18 +574,28 @@ fn start_backend_sidecar_blocking(app: &AppHandle) -> Result<BackendRuntimeInfo,
                     let port = random_ephemeral_port()?;
                     let mut python_command = build_python_backend_command(app, port)?;
                     configure_backend_command(app, &mut python_command, &sidecar_token)?;
-                    match spawn_and_wait(python_command, port, startup_timeout, &sidecar_token) {
-                        Ok(child) => {
+                    match spawn_and_wait(python_command, port, startup_timeout, &sidecar_token)? {
+                        SpawnOutcome::Ready(child) => {
                             launched = Some((child, port));
                             break;
                         }
-                        Err(err) => attempts.push(format!(
+                        SpawnOutcome::ExitedEarly(err) => attempts.push(format!(
                             "python launch attempt {}/{} on port {} failed: {}",
                             idx + 1,
                             STARTUP_PORT_ATTEMPTS,
                             port,
                             err
                         )),
+                        SpawnOutcome::Timeout(err) => {
+                            attempts.push(format!(
+                                "python launch attempt {}/{} on port {} failed: {}",
+                                idx + 1,
+                                STARTUP_PORT_ATTEMPTS,
+                                port,
+                                err
+                            ));
+                            break;
+                        }
                     }
                 }
             }

@@ -12,6 +12,15 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 
+# Use Hugging Face's classic (resumable, single-stream HTTP) downloader instead
+# of the Xet chunked backend. Xet (hf-xet) is bundled transitively and is used
+# by default for Xet-backed repos, but it has been observed to stall partway
+# through large GGUF downloads on some networks, leaving first-run model
+# downloads frozen mid-progress with no error. The classic path is slower but
+# robust and resumes cleanly across restarts. Must be set before huggingface_hub
+# is first imported. Override by setting HF_HUB_DISABLE_XET=0 in your env.
+os.environ.setdefault('HF_HUB_DISABLE_XET', '1')
+
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request

@@ -8,15 +8,18 @@ type DesktopSidecarInfo = {
 const envApiBase = (import.meta.env.VITE_API_BASE_URL || "").trim();
 const defaultApiBase = envApiBase || "/api";
 
-let apiBaseUrl = defaultApiBase;
-let desktopRuntime = false;
-let lastDesktopError: string | null = null;
-let sidecarToken: string | null = null;
-
 function isDesktopRuntime(): boolean {
   if (typeof window === "undefined") return false;
   return "__TAURI_INTERNALS__" in window;
 }
+
+let apiBaseUrl = defaultApiBase;
+// Detected synchronously at module load so the UI knows it's the desktop app
+// before the (potentially slow) sidecar startup completes. This lets App render
+// the live initializing screen immediately instead of the static placeholder.
+let desktopRuntime = isDesktopRuntime();
+let lastDesktopError: string | null = null;
+let sidecarToken: string | null = null;
 
 export async function initializeRuntimeConfig(): Promise<void> {
   if (!isDesktopRuntime()) return;

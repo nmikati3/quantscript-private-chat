@@ -11,6 +11,7 @@ import argparse
 import os
 import pathlib
 import sys
+import time
 
 
 def _ensure_backend_on_path(backend_dir: pathlib.Path) -> None:
@@ -18,6 +19,51 @@ def _ensure_backend_on_path(backend_dir: pathlib.Path) -> None:
     bd = str(backend_dir)
     if bd not in sys.path:
         sys.path.insert(0, bd)
+
+
+def _setup_sidecar_logging(data_dir: pathlib.Path) -> None:
+    """Point the frozen sidecar's stdout/stderr at a log file in the app-data dir.
+
+    The bundled (windowed) desktop app has no console, and the Rust launcher
+    discards the sidecar's stdout and keeps only a small slice of stderr — and
+    only when the process exits early. So when the backend is merely *slow* to
+    import (e.g. a cold PyInstaller one-file extract + heavy imports on an older
+    Intel Mac) or crashes in an unusual way, there is nothing left to diagnose.
+
+    Redirecting fds 1/2 to a file captures everything: Python logging, uvicorn
+    output, tracebacks, and native dynamic-loader / abort messages. No-op in dev
+    (not frozen), where output goes to the inherited terminal instead.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        log_dir = data_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "backend.log"
+        # Keep the log bounded across launches without a full logging framework.
+        try:
+            if log_path.exists() and log_path.stat().st_size > 5_000_000:
+                log_path.replace(log_dir / "backend.log.1")
+        except OSError:
+            pass
+        log_fh = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")
+    except OSError:
+        return
+
+    log_fh.write(
+        f"\n===== sidecar session {time.strftime('%Y-%m-%d %H:%M:%S')} "
+        f"(pid={os.getpid()}) =====\n"
+    )
+    log_fh.flush()
+    try:
+        os.dup2(log_fh.fileno(), 1)
+        os.dup2(log_fh.fileno(), 2)
+    except (OSError, ValueError):
+        pass
+    # Reassign the Python-level streams too so logging/uvicorn (which capture
+    # sys.stderr/sys.stdout) and print() write line-buffered to the same file.
+    sys.stdout = log_fh
+    sys.stderr = log_fh
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,6 +101,8 @@ def main() -> int:
     # _MEIPASS temp dir, recreated every launch). Seed a secret-free template
     # on first run so users can experiment with different local models.
     data_dir = pathlib.Path(os.environ.get("QUANTSCRIPT_DATA_DIR", str(backend_dir)))
+    _setup_sidecar_logging(data_dir)
+    print(f"[launch] sidecar starting on {args.host}:{args.port} (data_dir={data_dir})", flush=True)
     user_env = data_dir / ".env"
     if not user_env.exists():
         try:
@@ -78,8 +126,16 @@ def main() -> int:
     )
 
     import uvicorn  # noqa: E402
-    from app.api.main import app as application  # noqa: E402
 
+    # Import timing is logged so a slow first launch (cold one-file extract +
+    # heavy native imports on older/low-RAM machines) is visible in backend.log
+    # instead of looking like a silent hang on the "Launching backend…" screen.
+    print("[launch] importing backend application…", flush=True)
+    _import_start = time.time()
+    from app.api.main import app as application  # noqa: E402
+    print(f"[launch] backend import finished in {time.time() - _import_start:.1f}s", flush=True)
+
+    print(f"[launch] starting uvicorn on {args.host}:{args.port}", flush=True)
     uvicorn.run(
         application,
         host=args.host,

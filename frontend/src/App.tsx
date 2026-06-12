@@ -13,6 +13,7 @@ import { PencilIcon, ChevronLeftIcon, ChevronRightIcon } from "./icons";
 import { logger } from "./logger";
 import { generateMessageId } from "./messageId";
 import {
+  initializeRuntimeConfig,
   isDesktopApp,
   restartDesktopSidecar,
   safeExitDesktopApp,
@@ -111,12 +112,36 @@ function App() {
     });
   }, []);
 
-  // Poll backend until models are ready
+  // Start the desktop sidecar (if any), then poll the backend until ready.
+  //
+  // The sidecar launch is awaited *here* rather than before React mounts, so
+  // this initializing screen (spinner, progress, errors, retry/exit) is visible
+  // the whole time the backend is booting instead of a frozen static
+  // placeholder. The Rust command only resolves once the server is already
+  // reachable, so the first poll below succeeds immediately afterwards.
   useEffect(() => {
     let cancelled = false;
     let consecutiveConnectionFailures = 0;
 
-    const poll = async () => {
+    const run = async () => {
+      if (isDesktopApp()) {
+        setWaitingForServer(true);
+        try {
+          // First boot just starts the sidecar; a retry fully restarts it.
+          if (startupRetryToken > 0) {
+            await restartDesktopSidecar();
+          } else {
+            await initializeRuntimeConfig();
+          }
+        } catch (error) {
+          if (cancelled) return;
+          const message = error instanceof Error ? error.message : String(error);
+          setStartupErrorMessage(`Failed to start the backend: ${message}`);
+          return;
+        }
+        if (cancelled) return;
+      }
+
       while (!cancelled) {
         try {
           const s = await fetchStartupStatus();
@@ -144,7 +169,7 @@ function App() {
       }
     };
 
-    poll();
+    run();
 
     return () => {
       cancelled = true;
@@ -156,15 +181,7 @@ function App() {
     setWaitingForServer(true);
     setStartupSnapshot(null);
     setAppInitializing(true);
-    if (isDesktopApp()) {
-      try {
-        await restartDesktopSidecar();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        setStartupErrorMessage(`Failed to restart backend sidecar: ${message}`);
-        return;
-      }
-    }
+    // The startup effect (re)starts the sidecar when the retry token changes.
     setStartupRetryToken((value) => value + 1);
   };
 

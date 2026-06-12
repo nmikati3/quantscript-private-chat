@@ -3,15 +3,13 @@ import { createRoot } from 'react-dom/client'
 import 'katex/dist/katex.min.css'
 import './index.css'
 import { ErrorBoundary } from './ErrorBoundary'
-import { initializeRuntimeConfig } from './runtimeConfig'
 
 async function bootstrap() {
-  try {
-    await initializeRuntimeConfig()
-  } catch (error) {
-    // Continue bootstrapping so App can surface startup diagnostics and retry actions.
-    console.error('Desktop runtime initialization failed', error)
-  }
+  // Mount React immediately and let App drive the (potentially slow) desktop
+  // sidecar startup. Awaiting the backend here would leave the static
+  // index.html placeholder ("Launching backend…") frozen on screen for the
+  // entire boot — with no spinner, progress, or error — which on slower
+  // machines looks like the app is permanently stuck.
   const { default: App } = await import('./App.tsx')
 
   createRoot(document.getElementById('root')!).render(
