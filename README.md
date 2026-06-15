@@ -26,7 +26,7 @@ A one-click native app. No Python or terminal required. Download the build from 
 
 | Platform                     | Asset                               | Signing                     |
 | ---------------------------- | ----------------------------------- | --------------------------- |
-| macOS (Apple Silicon, M1–M4) | `QuantScript_<version>_aarch64.dmg` | Signed & notarized by Apple |
+| macOS (Apple Silicon, M1–M4) | [QuantScript 0.1.0 (aarch64)](https://github.com/nmikati3/quantscript-private-chat/releases/download/v0.1.0/QuantScript_0.1.0_aarch64.dmg) | Signed & notarized by Apple |
 
 
 Every asset ships with a matching `.sha256` checksum so you can verify the download. The build is **`aarch64`** for Apple Silicon Macs (M1–M4).
