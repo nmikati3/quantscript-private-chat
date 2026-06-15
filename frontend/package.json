@@ -65,8 +65,14 @@
       "jsdom": "^29.1.1",
       "typescript": "~5.9.3",
       "typescript-eslint": "^8.46.4",
-      "vite": "^7.2.4",
+      "vite": "^7.3.5",
       "vitest": "^4.1.6"
+    },
+    "overrides": {
+      "dompurify": "^3.4.10",
+      "js-yaml": "^4.2.0",
+      "@babel/core": "^7.29.7",
+      "esbuild": "^0.28.1"
     }
   }
   
