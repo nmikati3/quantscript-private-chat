@@ -1,0 +1,9 @@
+# CODEOWNERS — require review from the maintainer on all changes.
+# Docs: https://docs.github.com/articles/about-code-owners
+#
+# The last matching pattern takes precedence. Owners must have write
+# access to the repo for their review to satisfy the "Require review from
+# Code Owners" branch protection / ruleset setting.
+
+# Default owner for everything in the repo
+* @nmikati3
