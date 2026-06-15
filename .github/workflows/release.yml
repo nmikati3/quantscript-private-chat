@@ -375,12 +375,16 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # Collect every installer + checksum across the downloaded artifacts.
-          mapfile -t files < <(find release-artifacts -type f \
-            \( -name '*.dmg' -o -name '*.exe' -o -name '*.deb' \
-               -o -name '*.AppImage' -o -name '*.sha256' \) | sort)
+          # Only the macOS Apple Silicon (aarch64) build is shipped on the public
+          # Release for now — it is the only platform currently tested. The
+          # Windows, Linux, and Intel-macOS builds still run (their installers
+          # remain downloadable from the workflow run's artifacts for testing),
+          # but they are intentionally NOT attached to the Release. Scope the
+          # upload to just the aarch64 macOS artifact's .dmg + .sha256.
+          mapfile -t files < <(find release-artifacts/QuantScript-macos-aarch64 -type f \
+            \( -name '*.dmg' -o -name '*.sha256' \) | sort)
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "::error::No release artifacts found to publish."
+            echo "::error::No Apple Silicon (aarch64) release artifacts found to publish."
             exit 1
           fi
           printf 'Uploading:\n'; printf '  %s\n' "${files[@]}"

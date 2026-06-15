@@ -49,7 +49,7 @@
     "macOS": {
       "hardenedRuntime": true,
       "entitlements": "entitlements.plist",
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "15.6"
     },
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },

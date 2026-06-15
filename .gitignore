@@ -51,6 +51,8 @@ logs/
 
 .pytest_cache/
 
+__pycache__/
+
 # Model weights and packaged installers (never commit these)
 *.gguf
 *.safetensors
