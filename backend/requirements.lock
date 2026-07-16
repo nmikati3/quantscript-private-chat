@@ -86,14 +86,14 @@ limits==1.6
     # via slowapi
 llama-cpp-python==0.3.23
     # via -r requirements.txt
-lxml[html-clean]==6.1.0
+lxml[html-clean]==6.1.1
     # via
     #   htmldate
     #   justext
     #   lxml-html-clean
     #   trafilatura
     #   webserp
-lxml-html-clean==0.4.4
+lxml-html-clean==0.4.5
     # via lxml
 markdown-it-py==4.2.0
     # via rich
@@ -118,7 +118,7 @@ pandas==2.3.3
     # via
     #   -r requirements.txt
     #   fastparquet
-pillow==12.2.0
+pillow==12.3.0
     # via -r requirements.txt
 pyarrow==24.0.0
     # via -r requirements.txt
@@ -167,7 +167,7 @@ six==1.17.0
     #   python-dateutil
 slowapi==0.1.6
     # via -r requirements.txt
-soupsieve==2.8.3
+soupsieve==2.8.4
     # via beautifulsoup4
 starlette==1.3.1
     # via
