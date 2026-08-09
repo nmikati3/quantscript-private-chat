@@ -69,7 +69,7 @@
       "vitest": "^4.1.6"
     },
     "overrides": {
-      "dompurify": "^3.4.12",
+      "dompurify": "^3.4.13",
       "@babel/core": "^7.29.7",
       "esbuild": "^0.28.1"
     }
