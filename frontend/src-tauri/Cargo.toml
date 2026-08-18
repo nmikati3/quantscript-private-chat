@@ -1,6 +1,6 @@
 [package]
 name = "quantscript-desktop"
-version = "0.1.1"
+version = "0.1.2"
 description = "QuantScript desktop shell"
 authors = ["QuantScript Team"]
 license = "Apache-2.0"
