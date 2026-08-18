@@ -67,13 +67,13 @@ QuantScript runs the model entirely on your own machine through `llama-cpp-pytho
 | Detected memory (RAM) | Model (auto-selected)                       | Context window |
 | --------------------- | ------------------------------------------- | -------------- |
 | < 16 GB               | Gemma 4 **E2B** QAT, `UD-Q4_K_XL` (~2.6 GB) | 8K             |
-| 16 GB – 24 GB         | Gemma 4 **E4B** QAT, `UD-Q4_K_XL` (~4.2 GB) | 16K            |
+| 16 GB – 24 GB         | Gemma 4 **E4B** QAT, `UD-Q4_K_XL` (~4.2 GB) | 8K             |
 | ≥ 24 GB               | Gemma 4 **E4B**, `Q8_0` (~8.2 GB)           | 32K            |
 
 
 If you see the chat returning inconsistent answers or being very slow, try closing other apps as it usually helps. **On an 8 GB machine this matters a lot.**
 
-Deep Research is the most memory-intensive feature. It is currently not supported on machines under 16 GB. However, the implementation is there to potentially implement in the future an automatic switch to fewer planning rounds, searches, articles, and a smaller token budget so it can finish on modest hardware.
+Deep Research is the most memory-intensive feature and is not supported on machines under 16 GB. From 16 GB onwards it runs a **lite** profile that automatically scales down to fewer planning rounds, searches, and articles with a smaller token budget so a run finishes on modest hardware; machines with 24 GB or more run the full profile.
 
 Vision/attachment support works on every tier. More memory means a higher-quality quant and a larger context window; lower tiers stay responsive on modest hardware.
 

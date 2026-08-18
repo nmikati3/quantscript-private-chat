@@ -35,15 +35,7 @@ from app.engine.deep_research.prompts import (
 
 logger = logging.getLogger(__name__)
 
-# Deep research fires ~25+ model inferences for a single run on the full
-# profile. On a memory-constrained tier (8 GB Macs) that volume of work plus the
-# large per-call contexts pushes the machine into swap and a decode eventually
-# crashes mid-run. So on the low-memory tier we run a lighter profile: fewer
-# planning rounds, fewer searches, fewer articles and smaller token budgets.
-#
-# Precedence: an explicit environment variable always wins; otherwise we pick
-# the lite default on a low-memory machine and the full default elsewhere.
-_LITE = bool(getattr(MODEL_TIER, "low_memory", False))
+_LITE = bool(getattr(MODEL_TIER, "mid_memory", False))
 
 
 def _tiered_limit(env_var: str, full: int, lite: int) -> int:

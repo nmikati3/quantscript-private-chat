@@ -12,7 +12,7 @@ GGUFs in the ``UD-Q4_K_XL`` format (near-BF16 quality at ~4-bit size). The high
 tier runs the near-lossless 8-bit E4B ``Q8_0``:
 
     < 16 GB  -> Gemma 4 E2B QAT, UD-Q4_K_XL, N_CTX 8192   (~2.6 GB weights)
-    16-24 GB -> Gemma 4 E4B QAT, UD-Q4_K_XL, N_CTX 16384  (~4.2 GB weights)
+    16-24 GB -> Gemma 4 E4B QAT, UD-Q4_K_XL, N_CTX 8192   (~4.2 GB weights)
     >= 24 GB -> Gemma 4 E4B,     Q8_0,       N_CTX 32768  (~8.2 GB weights)
 
 Memory detection is platform-specific:
@@ -61,10 +61,9 @@ class ModelTier:
     filename: str
     mmproj_filename: str
     n_ctx: int
-    # Memory-constrained tier (e.g. 8 GB laptops). Heavy multi-call paths such
-    # as deep research scale themselves down ("lite" mode) when this is set, so
-    # a long run does not exhaust system memory and crash mid-workflow.
+    deep_research_available: bool = True
     low_memory: bool = False
+    mid_memory: bool = False
 
 
 TIER_LOW = ModelTier(
@@ -74,13 +73,15 @@ TIER_LOW = ModelTier(
     mmproj_filename="mmproj-F16.gguf",
     n_ctx=8192,
     low_memory=True,
+    deep_research_available=False,
 )
 TIER_MID = ModelTier(
     label="mid (16-24GB RAM)",
     repo_id="unsloth/gemma-4-E4B-it-qat-GGUF",
     filename="gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf",
     mmproj_filename="mmproj-F16.gguf",
-    n_ctx=16384,
+    n_ctx=8192,
+    mid_memory=True
 )
 TIER_HIGH = ModelTier(
     label="high (>=24GB RAM)",

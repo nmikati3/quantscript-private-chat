@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 PhaseStatus = Literal["pending", "running", "done", "error"]
 
 # Deep research is currently blocked for low-memory machines.
-DEEP_RESEARCH_AVAILABLE = not select_model_tier(detect_total_memory_bytes()).low_memory
+DEEP_RESEARCH_AVAILABLE = select_model_tier(detect_total_memory_bytes()).deep_research_available
 
 # Order matches main.py startup; labels mirror what you see in the terminal (weights / loading).
 PHASES: list[dict[str, str]] = [

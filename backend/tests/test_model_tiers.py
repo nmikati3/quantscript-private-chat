@@ -1,5 +1,7 @@
 """Tests for memory-based model tier selection and env-override precedence."""
 
+import importlib
+import os
 import sys
 
 import pytest
@@ -64,8 +66,60 @@ def test_select_model_tier_unknown_defaults_to_low():
 def test_tier_model_choices():
     # E2B/E4B QAT for the small & mid tiers; near-lossless E4B Q8_0 for high.
     assert "E2B" in TIER_LOW.filename and "qat" in TIER_LOW.filename and TIER_LOW.n_ctx == 8192
-    assert "E4B" in TIER_MID.filename and "qat" in TIER_MID.filename and TIER_MID.n_ctx == 16384
+    assert "E4B" in TIER_MID.filename and "qat" in TIER_MID.filename and TIER_MID.n_ctx == 8192
     assert "E4B" in TIER_HIGH.filename and "Q8_0" in TIER_HIGH.filename and TIER_HIGH.n_ctx == 32768
+
+
+@pytest.mark.parametrize(
+    "tier, deep_research_available, mid_memory, low_memory",
+    [
+        # Low (E2B): deep research is blocked; E2B sampling clamps are on.
+        (TIER_LOW, False, False, True),
+        # Mid (E4B QAT): deep research runs the *lite* profile (mid_memory), and
+        # ordinary E4B chat is NOT throttled by the E2B clamps (low_memory=False).
+        (TIER_MID, True, True, False),
+        # High (E4B Q8): deep research runs the full profile; no clamps.
+        (TIER_HIGH, True, False, False),
+    ],
+)
+def test_tier_capability_flags(tier, deep_research_available, mid_memory, low_memory):
+    """Lock the per-tier capability matrix so a future flip (like moving
+    ``low_memory`` onto the wrong tier, or gating deep research on the wrong one)
+    fails loudly instead of silently changing behavior."""
+    assert tier.deep_research_available is deep_research_available
+    assert tier.mid_memory is mid_memory
+    assert tier.low_memory is low_memory
+
+
+@pytest.mark.parametrize(
+    "ram_gib, expected_available",
+    [
+        (8, False),  # low tier -> deep research blocked
+        (16, True),  # mid tier -> deep research available (lite profile)
+        (24, True),  # high tier -> deep research available (full profile)
+    ],
+)
+def test_deep_research_gate_matches_tier(clean_model_env, ram_gib, expected_available):
+    """Exercise the real ``DEEP_RESEARCH_AVAILABLE`` wiring per tier.
+
+    Reloading ``startup_state`` under a pinned RAM override recomputes the
+    module-level gate through production code, so a reintroduced ``not`` (or a
+    gate keyed off the wrong field) is caught here rather than in the field.
+    """
+    clean_model_env.setenv("QUANTSCRIPT_TOTAL_MEMORY_BYTES", str(int(ram_gib * GIB)))
+    import app.core.startup_state as startup_state
+
+    importlib.reload(startup_state)
+    try:
+        assert startup_state.DEEP_RESEARCH_AVAILABLE is expected_available
+        # The gate must mirror the tier's field verbatim (no inversion).
+        assert startup_state.DEEP_RESEARCH_AVAILABLE is (
+            select_model_tier(int(ram_gib * GIB)).deep_research_available
+        )
+    finally:
+        # Restore the module to its real-hardware value for later tests.
+        os.environ.pop("QUANTSCRIPT_TOTAL_MEMORY_BYTES", None)
+        importlib.reload(startup_state)
 
 
 def test_detect_memory_honors_override(clean_model_env):
@@ -94,7 +148,7 @@ def test_resolve_mid_tier_at_16gb(clean_model_env):
     clean_model_env.setenv("QUANTSCRIPT_TOTAL_MEMORY_BYTES", str(16 * GIB))
     cfg = resolve_model_config()
     assert cfg["filename"] == TIER_MID.filename
-    assert cfg["n_ctx"] == 16384
+    assert cfg["n_ctx"] == 8192
 
 
 def test_resolve_high_tier_at_24gb(clean_model_env):
