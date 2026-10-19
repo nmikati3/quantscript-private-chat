@@ -54,7 +54,7 @@ fastparquet==2026.3.0
     # via -r backend/requirements.txt
 filelock==3.29.0
     # via huggingface-hub
-fsspec==2026.4.0
+fsspec==2026.9.0
     # via
     #   fastparquet
     #   huggingface-hub
