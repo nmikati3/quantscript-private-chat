@@ -39,7 +39,7 @@
         "@tauri-apps/plugin-opener": "^2.5.3",
         "jspdf": "^4.2.1",
         "jspdf-autotable": "^5.0.7",
-        "katex": "^0.16.45",
+        "katex": "^0.18.2",
         "marked": "^18.0.3",
         "react": "^19.2.1",
         "react-dom": "^19.2.1",
